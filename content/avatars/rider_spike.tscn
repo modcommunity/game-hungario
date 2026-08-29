@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://content/avatars/part.gd" id="1_part"]
+
+[node name="Riderspike" type="Node2D"]
+script = ExtResource("1_part")
+shape = "spike"
+tint_a = Color(0.95, 0.72, 0.35, 1)
+tint_b = Color(0.16, 0.12, 0.10, 1)

@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://content/avatars/part.gd" id="1_part"]
+
+[node name="Hatcap" type="Node2D"]
+script = ExtResource("1_part")
+shape = "cap"
+tint_a = Color(0.35, 0.70, 1.0, 1)
+tint_b = Color(0.10, 0.14, 0.20, 1)
