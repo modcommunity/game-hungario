@@ -1,0 +1,21 @@
+# Normalize EOL for all files that Git considers text files.
+#
+# This repository is cloned on Windows as well as Linux. Without this, Git for
+# Windows checks out CRLF and commits it back, and a shell script that round
+# trips through a Windows clone comes back to Linux with \r on the shebang and
+# fails with "bad interpreter". Scripts are pinned to LF for that reason;
+# .bat/.ps1 are pinned to CRLF because cmd.exe needs it.
+* text=auto eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Godot binary-ish resources: never touch these.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ogg binary
+*.wav binary
+*.ttf binary
+*.res binary
+*.pck binary
