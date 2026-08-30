@@ -1170,6 +1170,16 @@ func _test_loss() -> void:
 		_client_net.stats.snapshots_lost > 0,
 		"loss was detected (%d snapshots)" % _client_net.stats.snapshots_lost
 	)
+
+	# Recovery above depends entirely on the ack header the input packets carry, and
+	# the server degrades to a conservative view rather than failing when it never
+	# arrives — so a bridge whose ACK_BYTES and encode_ack() disagree would still get
+	# most of this section right. Ask the server whether the wiring took.
+	_check(
+		_server_net.peer_acks_wired(CLIENT_PEER),
+		"because the client's acknowledgements are reaching the server",
+		"without them the server keeps the conservative view and never re-sends"
+	)
 	_check(
 		apart < 12.0,
 		"and the client still tracks the server (%.2f units apart)" % apart
