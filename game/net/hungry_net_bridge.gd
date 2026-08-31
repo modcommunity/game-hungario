@@ -408,7 +408,8 @@ func _mirror_match_entity(net_id: int) -> DotResult:
 
 
 func mass_rules() -> Dot2DMassRules:
-	return world.tunables.mass_rules if world != null and world.tunables != null else null
+	var live := _live_world()
+	return live.tunables.mass_rules if live != null and live.tunables != null else null
 
 
 func match_behaviour() -> HungryMatchNet:
@@ -540,7 +541,20 @@ func remove_peer(peer_id: int) -> void:
 
 	# Before the world removes their pieces, so `piece_destroyed` still finds the
 	# behaviours and every client is told each entity is gone.
-	world.remove_player(session_id)
+	#
+	# [b]Guarded, because the world may already be gone.[/b] A game change frees the scene
+	# the world lives in and THEN the module that owned it is unloaded — and unloading is
+	# what takes everybody out. So on the way out of hungry this ran against a freed
+	# HungryWorld: "Invalid call. Nonexistent function 'remove_player' in base 'previously
+	# freed'", and with a real client attached and different timing, a segfault.
+	#
+	# The rest of the teardown still has to happen: the peer's entities, its input buffer
+	# and its acknowledgement record are the netcode's and outlive the scene. Returning
+	# early here would leak all three into the next game.
+	var live := _live_world()
+
+	if live != null:
+		live.remove_player(session_id)
 
 	if net != null:
 		if was_ready:
@@ -555,11 +569,24 @@ func remove_peer(peer_id: int) -> void:
 	roster_changed.emit(session_id)
 
 
+## The world, or null when there isn't one any more.
+##
+## [b]`world == null` is not the check.[/b] A game change frees the scene the world lives
+## in, and a freed [Object] is not null — it is a reference that answers `is_instance_valid`
+## with false and throws "Nonexistent function ... in base 'previously freed'" on the next
+## call. Every read below can run while a change is in flight: interest management asks for
+## a monster while building a snapshot, and the module asks for one while being unloaded.
+func _live_world() -> HungryWorld:
+	return world if world != null and is_instance_valid(world) else null
+
+
 func monster_for_peer(peer_id: int) -> HungryMonster:
-	if world == null or not _player_of_peer.has(peer_id):
+	var live := _live_world()
+
+	if live == null or not _player_of_peer.has(peer_id):
 		return null
 
-	return world.monster_for(int(_player_of_peer[peer_id]))
+	return live.monster_for(int(_player_of_peer[peer_id]))
 
 
 func player_for_peer(peer_id: int) -> int:
@@ -571,7 +598,8 @@ func peer_for_player(player_id: int) -> int:
 
 
 func local_monster() -> HungryMonster:
-	return world.monster_for(local_player_id) if world != null else null
+	var live := _live_world()
+	return live.monster_for(local_player_id) if live != null else null
 
 
 # --- Replicated pieces -----------------------------------------------------
@@ -678,11 +706,13 @@ func server_tick(tick: int) -> void:
 ## Called from every replicated behaviour's [code]_net_simulate[/code]; the first one
 ## through does the work and the rest find it done.
 func ensure_world_ticked(tick: int) -> void:
-	if _world_ticked_for == tick or world == null:
+	var live := _live_world()
+
+	if _world_ticked_for == tick or live == null:
 		return
 
 	_world_ticked_for = tick
-	world.tick(_commands)
+	live.tick(_commands)
 
 
 ## Takes one tick of a player's intent, on its way from an input packet to the world.
@@ -743,7 +773,7 @@ func client_tick(tick: int, command: Dot2DCommand) -> void:
 
 ## Advances one predicted piece. Called from [method HungryPieceNet._net_simulate].
 func predict_piece(piece: HungryPiece, tick: int, delta: float) -> void:
-	if world == null or piece == null:
+	if _live_world() == null or piece == null:
 		return
 
 	var monster := world.monster_for(piece.owner_id)
