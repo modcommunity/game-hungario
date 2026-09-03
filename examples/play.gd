@@ -6,6 +6,7 @@ extends Node
 ## godot --path .                                  # the menu
 ## godot --path . -- --connect 127.0.0.1:27081     # straight in
 ## godot --path . -- --offline                     # bots, no server
+## godot --headless --path . -- --seconds 3        # exit on its own, for a sweep
 ## [/codeblock]
 ##
 ## [b]This is the application, and the client is a scene it loads.[/b] dot-server's signon
@@ -43,6 +44,8 @@ var _connect_button: Button = null
 
 func _ready() -> void:
 	DotLog.set_level(DotLog.Level.INFO)
+
+	_arm_exit_timer()
 
 	_root = Node.new()
 	_root.name = "ClientSide"
@@ -225,3 +228,29 @@ func _spawn_client(offline: bool) -> void:
 	_root.add_child(client)
 
 	DotLog.info(CHANNEL, "playing", {"offline": offline})
+
+
+## Runs for `--seconds N` and then exits 0. Zero, the default, means forever.
+##
+## This scene is interactive: it waits for a person, so a blanket "run every example"
+## sweep stalls here and the scene is therefore opened by nothing. That is the state a
+## load-time regression hides in — a renamed node or a moved resource breaks it and no
+## suite in the repository notices. Bounding it is what makes it sweepable, the same
+## way dot-auth's issuer example is.
+##
+## Not a self-test: reaching the timeout only proves the scene loaded and ran frames.
+## It exits 0 for exactly that claim and no larger one.
+func _arm_exit_timer() -> void:
+	var argv := OS.get_cmdline_user_args()
+	var at := argv.find("--seconds")
+	if at < 0 or at + 1 >= argv.size():
+		return
+
+	var seconds := maxf(0.0, argv[at + 1].to_float())
+	if seconds <= 0.0:
+		return
+
+	print("Exiting in %.1f seconds (--seconds)." % seconds)
+	await get_tree().create_timer(seconds).timeout
+	print("--seconds elapsed; exiting.")
+	get_tree().quit(0)
