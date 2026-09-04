@@ -17,6 +17,7 @@
 /addons/dot_platform
 /addons/dot_cloud
 /addons/dot_loadout
+/addons/dot_stats
 
 # Exports
 build/

@@ -50,6 +50,18 @@ var loadouts: DotLoadoutManager = null
 ## Null on a server with no integration token, which is every LAN game and every test.
 var backbone: DotBackboneClient = null
 
+## Counts what every monster did, and reports it through [member backbone].
+##
+## Always built, because the session figures are the game's own (a match summary
+## reads them) and counting costs nothing; reporting happens only when there is a
+## backbone to report through. Players are keyed by the scoped id dot-platform
+## resolved, never the account id — a session with no scoped key, which is every
+## guest on a LAN server, is counted under nothing and reported nowhere.
+var stats: DotStatsTracker = null
+
+## userid -> the scoped key the tracker knows them by.
+var _stat_keys: Dictionary = {}
+
 ## userid -> true, for the humans this module put in the world.
 var _joined: Dictionary = {}
 
@@ -110,6 +122,7 @@ func _module_load() -> DotResult:
 	_register_console()
 
 	_build_reporting()
+	_build_stats()
 
 	if Engine.physics_ticks_per_second != world.tick_rate:
 		# Not corrected here: `sv_tickrate` is the operator's and this module is a guest
@@ -434,6 +447,131 @@ func roster_report() -> Array:
 	return server.to_roster_report()
 
 
+# --- Statistics -------------------------------------------------------------
+
+## What this game counts per player. Declared once; the site learns it at boot.
+##
+## Every stat is published: a grow-by-eating game has nothing to count privately.
+## The kinds are the contract — `top_mass` is a BEST, so a monster that shrank
+## keeps its record, and everything else adds.
+static func stats_schema() -> DotStatsSchema:
+	var schema := DotStatsSchema.new()
+	for id in [&"food", &"fruit", &"pieces_eaten", &"kills", &"deaths", &"bursts", &"items"]:
+		schema.define(id).publish = true
+	var mass := schema.define(&"mass_eaten", DotStatsDef.Kind.COUNTER, "Mass eaten")
+	mass.publish = true
+	mass.decimals = 1
+	var top := schema.define(&"top_mass", DotStatsDef.Kind.BEST, "Biggest")
+	top.publish = true
+	top.decimals = 1
+	return schema
+
+
+func _build_stats() -> void:
+	stats = DotStatsTracker.new()
+	stats.name = "Stats"
+	stats.schema = stats_schema()
+	stats.report_to_backbone = backbone != null
+	stats.reporter.client = backbone
+	add_child(stats)
+
+	world.food_eaten.connect(_on_stat_food)
+	world.fruit_eaten.connect(_on_stat_fruit)
+	world.item_taken.connect(_on_stat_item)
+	world.piece_eaten.connect(_on_stat_piece)
+	world.player_died.connect(_on_stat_death)
+	world.monster_burst.connect(_on_stat_burst)
+
+
+## The tracker's key for a world player id, or empty for a bot or a keyless guest.
+func _stat_key(player_id: int) -> StringName:
+	return StringName(str(_stat_keys.get(player_id, "")))
+
+
+func _note_mass(player_id: int) -> void:
+	var key := _stat_key(player_id)
+	if key == &"":
+		return
+	var monster := world.monster_for(player_id)
+	if monster != null:
+		stats.record(key, &"top_mass", monster.mass())
+
+
+func _on_stat_food(player_id: int, _grid_id: int, mass: float) -> void:
+	var key := _stat_key(player_id)
+	if key == &"":
+		return
+	stats.record(key, &"food")
+	stats.record(key, &"mass_eaten", mass)
+	_note_mass(player_id)
+
+
+func _on_stat_fruit(player_id: int, _grid_id: int, _kind: HungryContent.Fruit) -> void:
+	var key := _stat_key(player_id)
+	if key != &"":
+		stats.record(key, &"fruit")
+
+
+func _on_stat_item(player_id: int, _grid_id: int, _item: StringName) -> void:
+	var key := _stat_key(player_id)
+	if key != &"":
+		stats.record(key, &"items")
+
+
+func _on_stat_piece(eater_id: int, _victim: int, mass: float) -> void:
+	var key := _stat_key(eater_id)
+	if key == &"":
+		return
+	stats.record(key, &"pieces_eaten")
+	stats.record(key, &"mass_eaten", mass)
+	_note_mass(eater_id)
+
+
+func _on_stat_death(player_id: int, killer_id: int) -> void:
+	var victim := _stat_key(player_id)
+	if victim != &"":
+		stats.record(victim, &"deaths")
+	var killer := _stat_key(killer_id)
+	if killer != &"" and killer_id != player_id:
+		stats.record(killer, &"kills")
+
+
+func _on_stat_burst(_player_id: int, by_player: int, _pieces: int) -> void:
+	var key := _stat_key(by_player)
+	if key != &"":
+		stats.record(key, &"bursts")
+
+
+## Starts counting for a session, under the scoped key dot-platform resolved.
+##
+## Duck-typed like [method _avatar_for]: a LAN server has no platform module,
+## and a session without a key is counted under nothing rather than under the
+## account id the identity carries — which is the one thing that must never be
+## filed. The tracker's reporter would refuse it anyway; not offering it is the
+## first line.
+func _begin_stats(session: DotClientSession) -> void:
+	if stats == null:
+		return
+	var platform: Object = server.modules.get_module("platform")
+	if platform == null or not platform.has_method("player_for"):
+		return
+	var player: Object = platform.call("player_for", session)
+	if player == null or not player.has_method("key"):
+		return
+	var key := str(player.call("key"))
+	if key == "":
+		return
+	_stat_keys[session.userid] = StringName(key)
+	stats.begin(StringName(key), session.display_name)
+
+
+func _end_stats(session: DotClientSession) -> void:
+	if stats == null or not _stat_keys.has(session.userid):
+		return
+	stats.end(_stat_keys[session.userid])
+	_stat_keys.erase(session.userid)
+
+
 # --- The tick --------------------------------------------------------------
 
 func _physics_process(_delta: float) -> void:
@@ -477,6 +615,7 @@ func _on_client_spawn(event: DotEvent) -> void:
 
 	_joined[session.userid] = true
 	_apply_stored_loadout(session.userid)
+	_begin_stats(session)
 
 
 func _on_client_disconnected(session: DotClientSession, _reason: String) -> void:
@@ -485,6 +624,7 @@ func _on_client_disconnected(session: DotClientSession, _reason: String) -> void
 
 	bridge.remove_peer(session.peer_id)
 	_joined.erase(session.userid)
+	_end_stats(session)
 
 
 ## The avatar dot-platform resolved for this session, if there is a dot-platform.
