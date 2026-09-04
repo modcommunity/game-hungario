@@ -69,6 +69,7 @@ func _run() -> void:
 		# and did.
 		await _test_loadouts()
 		_test_reporting()
+		await _test_stats()
 		_test_netcode()
 		await _test_game_change()
 		_test_transport()
@@ -313,8 +314,122 @@ func _test_commands() -> void:
 	)
 
 
-# --- Bots ------------------------------------------------------------------
 	_done()
+
+
+# --- Statistics --------------------------------------------------------------
+
+## What the module counts, and who it counts it for.
+##
+## The wiring is the part worth testing rather than dot-stats itself, which has
+## its own suite: that the world's signals reach a tracker, that a player is
+## keyed by their SCOPED id, and — the one that matters — that an account id can
+## never be what a stat is filed under. This server has no dot-platform module,
+## so nothing here has a scoped key and nothing is counted, which is exactly the
+## case a LAN server is in and the one a wiring bug would hide behind.
+func _test_stats() -> void:
+	_section("statistics")
+
+	var module := _module()
+
+	_check(module.stats != null, "the module built a tracker")
+
+	if module.stats == null:
+		_done()
+		return
+
+	var schema := module.stats.schema
+
+	_check(schema != null and schema.validate().ok, "its schema validates")
+	_check(
+		schema.find(&"top_mass") != null
+			and schema.find(&"top_mass").kind == DotStatsDef.Kind.BEST,
+		"a biggest-ever is a BEST, so shrinking does not lose the record"
+	)
+	_check(
+		schema.find(&"mass_eaten") != null
+			and schema.find(&"mass_eaten").kind == DotStatsDef.Kind.COUNTER,
+		"and mass eaten is a counter"
+	)
+	_check(
+		schema.published().size() == schema.size(),
+		"every stat is published; this game counts nothing privately"
+	)
+
+	# No integration token in a test, so nothing reports — and the tracker still
+	# counts, because the session figures are the game's own.
+	_check(
+		not module.stats.report_to_backbone,
+		"reporting is off without a backbone to report through"
+	)
+
+	# The bots from the previous section are eating right now. None of them has a
+	# scoped key, so none of them is counted: a bot is not a player, and a stat
+	# filed for one would be filed under nothing.
+	_check(
+		module.stats.players().is_empty(),
+		"bots are counted for nobody (%d)" % module.stats.players().size()
+	)
+
+	# The wiring, driven directly. A world signal has to reach the tracker for a
+	# player it knows, and the merge has to be the stat's own.
+	# Ids well past any real player, and POSITIVE: the same signals drive
+	# replication, and dot-net's varint writer refuses a negative id outright.
+	const ME := 900001
+	const THEM := 900002
+
+	var key := &"AAAAAAAAAAAAAAAAAAAAAA"
+	module.stats.begin(key, "Test")
+	module._stat_keys[ME] = key
+
+	module.world.food_eaten.emit(ME, 0, 4.0)
+	module.world.food_eaten.emit(ME, 1, 6.0)
+	module.world.piece_eaten.emit(ME, THEM, 10.0)
+	module.world.player_died.emit(THEM, ME)
+	module.world.monster_burst.emit(THEM, ME, 3)
+
+	var values := module.stats.session_values(key)
+
+	_check(values.get_value(&"food") == 2.0, "eating food counts it")
+	_check(
+		values.get_value(&"mass_eaten") == 20.0,
+		"and its mass adds across food and pieces (%.1f)" % values.get_value(&"mass_eaten")
+	)
+	_check(values.get_value(&"pieces_eaten") == 1.0, "eating a piece counts it")
+	_check(values.get_value(&"kills") == 1.0, "a kill is credited to the killer")
+	_check(values.get_value(&"bursts") == 1.0, "and a burst to whoever caused it")
+
+	# A player who kills themselves is not credited with a kill.
+	module.world.player_died.emit(ME, ME)
+	_check(
+		values.get_value(&"kills") == 1.0 and values.get_value(&"deaths") == 1.0,
+		"but a self-kill is only a death"
+	)
+
+	# THE check. `_begin_stats` asks dot-platform for a SCOPED key and files
+	# nothing without one; the account id the identity carries must never be what
+	# a figure is filed under, and the reporter refuses one as a second line.
+	_check(
+		not DotStatsReporter.is_player_id("backbone:clx8f2k0000"),
+		"an account id is refused as a player key"
+	)
+	_check(
+		DotStatsReporter.is_player_id(String(key)),
+		"and a scoped key is not"
+	)
+
+	module.stats.end(key)
+	module._stat_keys.erase(ME)
+
+	_check(
+		not module.stats.has_player(key),
+		"a player who leaves is forgotten"
+	)
+
+	_done()
+
+
+# --- Bots ------------------------------------------------------------------
 
 func _test_bots() -> void:
 	_section("bots")
