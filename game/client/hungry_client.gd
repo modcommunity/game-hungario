@@ -176,6 +176,10 @@ func _build_netcode() -> DotResult:
 	if link.has_signal("chat_received"):
 		link.connect("chat_received", _on_chat)
 
+	if link.has_method("ping_ms"):
+		bridge.rtt_source = func() -> float:
+			return float(maxi(0, int(link.call("ping_ms"))))
+
 	return net.start()
 
 
@@ -222,7 +226,7 @@ func _build_ui() -> void:
 	screens.service_scope = &"hungry"
 	# A blob game is played with a visible cursor: the cursor is the control.
 	screens.idle_mouse_mode = DotScreen.Mouse.VISIBLE
-	screens.ui_theme = DotUiTheme.dark()
+	screens.ui_theme = DotUiTheme.space()
 	layer.add_child(screens)
 	screens.setup()
 

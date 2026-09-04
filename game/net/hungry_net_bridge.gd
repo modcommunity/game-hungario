@@ -44,6 +44,13 @@ signal roster_changed(player_id: int)
 signal cue(kind: int, data: Dictionary)
 
 var world: HungryWorld = null
+## Where the clock learns how long the link is, in milliseconds. dot-net never
+## touches a transport and cannot measure it; dot-server's heartbeat already does
+## (`DotClientLink.ping_ms()`), and a client that feeds nothing has a clock that
+## assumes an instant connection and stamps every command for a tick the server has
+## already simulated. Read on every snapshot.
+var rtt_source: Callable = Callable()
+
 var net: DotNetManager = null
 var link: HungryNetLink = null
 
@@ -799,6 +806,9 @@ func predict_piece(piece: HungryPiece, tick: int, delta: float) -> void:
 func receive_snapshot(payload: PackedByteArray) -> DotResult:
 	if net == null or net.is_server:
 		return DotResult.fail(DotError.CODE_FORBIDDEN, "Only a client receives these.")
+
+	if rtt_source.is_valid():
+		net.stats.note_rtt(float(rtt_source.call()))
 
 	return net.receive_snapshot(payload)
 
