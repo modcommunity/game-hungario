@@ -742,8 +742,8 @@ static func game_descriptors() -> Array[DotGameDescriptor]:
 	var out: Array[DotGameDescriptor] = []
 
 	for row in [
-		[GAME_CLASSIC, "Hungry: Classic", "res://game/modes/classic.tscn"],
-		[GAME_FRENZY, "Hungry: Frenzy", "res://game/modes/frenzy.tscn"],
+		[GAME_CLASSIC, "Hungario: Classic", "res://game/modes/classic.tscn"],
+		[GAME_FRENZY, "Hungario: Frenzy", "res://game/modes/frenzy.tscn"],
 	]:
 		var descriptor := DotGameDescriptor.new()
 		descriptor.game_id = String(row[0])

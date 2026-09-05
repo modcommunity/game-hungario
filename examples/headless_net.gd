@@ -47,7 +47,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	print("dot-2d-hungry: netcode")
+	print("game-hungario: netcode")
 	print("")
 
 	_test_command_wire()

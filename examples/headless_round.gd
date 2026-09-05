@@ -44,7 +44,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	print("dot-2d-hungry: a round")
+	print("game-hungario: a round")
 	print("")
 
 	_test_setup()
