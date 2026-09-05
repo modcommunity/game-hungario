@@ -430,7 +430,8 @@ cd godot/dot-2d-hungry
 for pair in dot_core:dot-core dot_2d:dot-2d dot_net:dot-net dot_server:dot-server \
             dot_match:dot-match dot_ui:dot-ui dot_user:dot-user \
             dot_user_avatar:dot-user-avatar dot_auth:dot-auth \
-            dot_platform:dot-platform dot_cloud:dot-cloud dot_loadout:dot-loadout; do
+            dot_platform:dot-platform dot_cloud:dot-cloud dot_loadout:dot-loadout \
+            dot_stats:dot-stats; do
   ln -s "../../${pair##*:}/addons/${pair%%:*}" "addons/${pair%%:*}"
 done
 
@@ -441,7 +442,7 @@ done
 
 godot --headless --path . res://examples/headless_round.tscn   # 186 — the game
 godot --headless --path . res://examples/headless_net.tscn     # 107 — the netcode
-godot --headless --path . res://examples/dedicated.tscn        #  81 — a real DotServer
+godot --headless --path . res://examples/dedicated.tscn        #  97 — a real DotServer
 godot --headless --path . res://examples/sandbox.tscn          #  68 — two real clients
 godot --headless --path . res://examples/content.tscn          #  45 — the cloud path
 ```

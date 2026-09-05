@@ -46,8 +46,8 @@ class Minimap extends Control:
 	var world: HungryWorld = null
 	var player_id: int = 0
 
-	var background := Color(0.05, 0.06, 0.08, 0.72)
-	var border := Color(0.30, 0.33, 0.38, 0.9)
+	var background := Color(0.038, 0.045, 0.082, 0.78)
+	var border := Color(0.30, 0.44, 0.72, 0.60)
 
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
