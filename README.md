@@ -1,5 +1,17 @@
-# dot-2d-hungry
+This is a **game** built on TMC's **Dot** collection, rather than a piece of it. It was written to run the whole family end to end, and it is the first thing here a person can actually sit down and play.
 
+This collection of assets provides modular building blocks for creating games and applications within the TMC ecosystem, ensuring consistency and interoperability across all `dot-*` assets. This includes core functionality, networking, authentication, cloud integration, and more.
+
+**These assets are COMPLETELY OPEN SOURCE**. You are free to use, modify, and distribute them under the terms of the MIT license. The only thing not open source is the back-end web infrastructure. So if you opt into using your own authentication backend instead of integrating with TMC, you will need to build and integrate your own back-end infrastructure.
+
+## From Maintainer & WARNING
+This asset, along with all the others, was built initially with **Claude Code** and will continue to be maintained and extended using it. This is because I (`gamemann`) cannot build the entire TMC platform alone (I wish I could lol).
+
+**Please treat this as partially tested.** Every asset has its own headless test suite and those suites pass, but very little of this has been in front of real players yet. Expect rough edges, and please report anything you run into.
+
+I intend on reviewing code, testing, and editing documentation regularly. If you're interested in helping out, please let me know!
+
+## An Arena Game Built Out of `dot-*`
 An agar.io-shaped game where the thing you steer is a monster and the thing riding it is
 your avatar. Built out of the [dot-*](../NOTES.md) family, and meant to be played from a
 link.
