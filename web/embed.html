@@ -1,0 +1,145 @@
+<!doctype html>
+<!--
+  A page that hosts the Godot web export and hands it a server address.
+
+  Deliberately dependency-free and deliberately small. Everything here is either required
+  by the export or is one of the things a browser gets wrong by default:
+
+  - The canvas must be sized in CSS *and* have its backing store sized in device pixels,
+    or the game is blurry on every phone and every scaled display.
+  - `touch-action: none` on the canvas, or a drag scrolls the page instead of steering the
+    monster, and there is no way to play at all on a phone.
+  - The loading state has to be visible before the WASM arrives: a 20 MB download on a
+    phone is several seconds of blank white, which people read as a broken link.
+
+  Replace SERVER_DEFAULT, and drop this beside the exported index.js / index.wasm /
+  index.pck.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>hungry</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #0e1013; color: #e8eaee;
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  #canvas {
+    display: block; width: 100%; height: 100%;
+    /* Without this a drag scrolls the page and the game is unplayable on a phone. */
+    touch-action: none;
+    outline: none;
+  }
+  #status {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    background: #0e1013; text-align: center; padding: 24px;
+  }
+  #status.hidden { display: none; }
+  #bar { width: min(320px, 70vw); height: 4px; background: #23262c; border-radius: 2px; }
+  #bar > div { height: 100%; width: 0; background: #ffa63a; border-radius: 2px; transition: width .2s; }
+  .dim { color: #8b919b; font-size: 13px; margin-top: 12px; }
+  .error { color: #ff6b63; max-width: 40ch; }
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="0">Your browser does not support the canvas element.</canvas>
+
+<div id="status">
+  <div>
+    <div id="message">Loading&#8230;</div>
+    <div id="bar"><div></div></div>
+    <div class="dim" id="detail"></div>
+  </div>
+</div>
+
+<script src="index.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // Where to connect when the URL does not say. Replace with your own.
+  var SERVER_DEFAULT = "wss://localhost:27081";
+
+  var canvas  = document.getElementById("canvas");
+  var status  = document.getElementById("status");
+  var message = document.getElementById("message");
+  var detail  = document.getElementById("detail");
+  var fill    = document.querySelector("#bar > div");
+
+  // The server comes from the query string, so one export serves every server.
+  //
+  // Validated rather than passed through: this string ends up as a connection target,
+  // and accepting anything from a URL somebody else can craft is how a link to your game
+  // becomes a link to theirs.
+  function serverFromQuery() {
+    var raw = new URLSearchParams(location.search).get("server");
+    if (!raw) return SERVER_DEFAULT;
+
+    try {
+      var url = new URL(raw);
+      if (url.protocol !== "wss:" && url.protocol !== "ws:") return SERVER_DEFAULT;
+      return url.toString();
+    } catch (e) {
+      return SERVER_DEFAULT;
+    }
+  }
+
+  var server = serverFromQuery();
+
+  // A page served over HTTPS may not open an insecure WebSocket. The browser blocks it as
+  // mixed content and reports a generic connection failure, so say it here instead.
+  if (location.protocol === "https:" && server.indexOf("ws://") === 0) {
+    message.textContent = "This server cannot be reached from a secure page.";
+    detail.className = "error";
+    detail.textContent =
+      "The page is on HTTPS and the server address is ws://, which browsers block. " +
+      "The server needs a certificate and a wss:// address.";
+    return;
+  }
+
+  // The canvas needs its backing store in device pixels, not CSS pixels, or the game is
+  // blurry on every phone and every scaled display.
+  function resize() {
+    var ratio = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width  = Math.floor(canvas.clientWidth  * ratio);
+    canvas.height = Math.floor(canvas.clientHeight * ratio);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  var engine = new Engine({
+    canvas: canvas,
+    canvasResizePolicy: 0,          // this page owns the size; see resize() above
+    // The launcher reads the query string first in a browser, so this pair is a
+    // belt-and-braces for a host that serves the export without this page.
+    args: ["--", "--connect", server],
+    focusCanvas: true,
+  });
+
+  engine.startGame({
+    onProgress: function (loaded, total) {
+      if (total > 0) {
+        fill.style.width = ((loaded / total) * 100).toFixed(1) + "%";
+        detail.textContent =
+          (loaded / 1048576).toFixed(1) + " of " + (total / 1048576).toFixed(1) + " MB";
+      } else {
+        // Not every server sends a Content-Length, and without one there is no
+        // percentage to show. Saying so beats a bar that never moves.
+        detail.textContent = "Downloading&#8230;";
+      }
+    },
+  }).then(function () {
+    status.classList.add("hidden");
+    canvas.focus();
+  }).catch(function (error) {
+    message.textContent = "This did not load.";
+    detail.className = "error";
+    detail.textContent = String(error);
+  });
+})();
+</script>
+</body>
+</html>
