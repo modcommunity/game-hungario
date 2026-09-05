@@ -51,19 +51,26 @@ var threat_colour := Color(1.0, 0.35, 0.32, 0.85)
 ## real content and content is a scene.
 var _riders: Dictionary = {}
 
-var background := Color(0.055, 0.062, 0.078)
-var grid_line := Color(0.10, 0.11, 0.135)
-var wall := Color(0.30, 0.33, 0.40)
+## The arena floor. Space, one shade off the void so the boundary reads without the wall
+## having to do all the work.
+var background := Color(0.046, 0.052, 0.088)
 
-## Food, by tier. Warmer and brighter as it gets bigger, so size reads at a glance.
+## Outside the walls. Darker, and the only thing that says "you cannot go there".
+var void_colour := Color(0.020, 0.023, 0.042)
+
+var grid_line := Color(0.17, 0.28, 0.46, 0.30)
+var wall := Color(0.36, 0.68, 1.0)
+
+## Food, by tier. Cool and dim through to hot and bright, so size reads at a glance — the
+## same ordering as before, moved onto a palette that belongs in a sky.
 var food_colours: Array[Color] = [
-	Color(0.55, 0.62, 0.72),
-	Color(0.62, 0.78, 0.60),
-	Color(0.85, 0.78, 0.45),
-	Color(0.95, 0.62, 0.35),
+	Color(0.60, 0.70, 0.92),
+	Color(0.42, 0.88, 0.80),
+	Color(0.98, 0.84, 0.46),
+	Color(1.00, 0.58, 0.34),
 ]
 
-var planted_colour := Color(0.78, 0.55, 0.85)
+var planted_colour := Color(0.80, 0.52, 1.0)
 
 var _font: Font = null
 
@@ -111,7 +118,22 @@ func _draw() -> void:
 
 func _draw_ground(view: Rect2) -> void:
 	var bounds := world.arena.bounds
+
+	# THE WHOLE VIEW, not just the arena. Only the arena used to be painted, which left the
+	# window's clear colour showing past the boundary — unnoticeable as a flat grey and
+	# glaring once there is a sky, because space that stops at the wall makes the wall look
+	# like a rendering fault.
+	draw_rect(view, void_colour)
 	draw_rect(bounds, background)
+
+	# The sky, parallaxed against the camera — see [DotStarfield] for why it is hashed rather
+	# than stored. Drawn under the grid and everything else: it is scenery, and nothing in
+	# it may be mistaken for something edible.
+	var anchor := camera.global_position if camera != null else Vector2.ZERO
+	var seconds := float(Time.get_ticks_msec()) * 0.001
+
+	DotStarfield.draw_nebula(self, view, anchor)
+	DotStarfield.draw_into(self, view, anchor, seconds)
 
 	# A grid, because a featureless plane gives no sense of speed at all — a monster
 	# moving across an empty background looks stationary, which is exactly wrong for a
@@ -146,7 +168,18 @@ func _draw_ground(view: Rect2) -> void:
 			)
 		y += step
 
-	draw_rect(bounds, wall, false, 3.0)
+	_draw_wall(bounds)
+
+
+## The boundary, drawn as a glow rather than a line.
+##
+## Three passes, widest and faintest first. A 3px hairline is nearly invisible against a
+## starfield, and the wall is the one thing in this scene a player cannot afford to miss:
+## being cornered against it is how most of them are eaten.
+func _draw_wall(bounds: Rect2) -> void:
+	draw_rect(bounds, Color(wall.r, wall.g, wall.b, 0.09), false, 16.0)
+	draw_rect(bounds, Color(wall.r, wall.g, wall.b, 0.20), false, 7.0)
+	draw_rect(bounds, Color(wall.r, wall.g, wall.b, 0.85), false, 2.0)
 
 
 func _draw_field(view: Rect2) -> void:
@@ -159,7 +192,16 @@ func _draw_field(view: Rect2) -> void:
 
 		match HungryField.kind_of(grid_id):
 			HungryField.Kind.FOOD:
-				draw_circle(at, radius, food_colours[world.field.tier_of(grid_id)])
+				var tier := world.field.tier_of(grid_id)
+				var food := food_colours[tier]
+
+				# A halo on the top two tiers ONLY. Every crumb glowing is a thousand extra
+				# circles a frame and a screen with no contrast left in it; the pieces worth
+				# crossing the arena for are the ones that should carry light.
+				if tier >= 2:
+					draw_circle(at, radius * 2.1, Color(food.r, food.g, food.b, 0.13))
+
+				draw_circle(at, radius, food)
 
 			HungryField.Kind.PLANTED:
 				draw_circle(at, radius, planted_colour)
@@ -167,6 +209,7 @@ func _draw_field(view: Rect2) -> void:
 			HungryField.Kind.FRUIT:
 				var kind := int(world.field.fruit_kind_of(grid_id))
 				var colour := HungryContent.FRUIT_COLOURS[kind]
+				draw_circle(at, radius * 2.6, Color(colour.r, colour.g, colour.b, 0.16))
 				draw_circle(at, radius, colour)
 				# A ring, so a fruit is never mistaken for a large piece of food. Being
 				# able to tell them apart at a glance is the whole value of a rare thing.
@@ -244,6 +287,11 @@ func _draw_piece(
 	if (flags & HungryContent.FLAG_PROTECTED) != 0:
 		body.a = 0.65
 
+	# A corona, so a monster reads as a body of light in a sky rather than a flat disc laid
+	# on top of one. One extra circle per piece, and pieces are counted in dozens.
+	draw_circle(
+		piece.position(), piece.radius() * 1.15, Color(body.r, body.g, body.b, 0.13)
+	)
 	draw_circle(piece.position(), piece.radius(), body)
 	draw_arc(
 		piece.position(),
