@@ -1,12 +1,18 @@
-# dot-2d-hungry
+# game-hungario
 
 An agar.io-shaped 2D game where the thing you steer is a monster and the thing riding it
 is your avatar. Read `../../CLAUDE.md` first for the family-wide rules; this file is what
 is specific to this game.
 
-*(`dot-2d-hungry` is a working name. Nothing in the code depends on it — the class prefix
-is `Hungry`, the module is `hungry`, and the two game ids are `hungry_classic` and
-`hungry_frenzy`.)*
+*(The repository was `dot-2d-hungry` while the game had a working title. **The identifiers
+inside it deliberately did not follow the rename**: the class prefix is still `Hungry`, the
+module is `hungry`, the content id is `hungry` and the two game ids are `hungry_classic`
+and `hungry_frenzy`. Those are not cosmetic — `content_id` is what a client keys its table
+of built-in games on, `game_id` is what an operator types at the console, and the RPC node
+is named `Hungry` because in Godot the name **is** the routing. Renaming any of them
+breaks a wire contract to make a directory listing tidier, which is the trade this family
+already documented when it explained why `content_id` exists separately from `game_id` at
+all.)*
 
 ## Why this project exists
 
@@ -426,7 +432,7 @@ Every one of these parsed cleanly and none produced an error.
 ## Validating changes
 
 ```bash
-cd godot/dot-2d-hungry
+cd godot/game-hungario
 for pair in dot_core:dot-core dot_2d:dot-2d dot_net:dot-net dot_server:dot-server \
             dot_match:dot-match dot_ui:dot-ui dot_user:dot-user \
             dot_user_avatar:dot-user-avatar dot_auth:dot-auth \

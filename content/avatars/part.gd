@@ -11,7 +11,7 @@ extends Node2D
 ## `class_name`: a global identifier registered twice from two packs is a collision the
 ## engine resolves arbitrarily.
 ##
-## It is deliberately a `_draw` call rather than a sprite. dot-2d-hungry ships no art, the
+## It is deliberately a `_draw` call rather than a sprite. game-hungario ships no art, the
 ## same way dot-ui ships none, and a part that is a few polygons is a part that can be
 ## versioned, signed, downloaded and mounted at a realistic size without anybody having to
 ## produce a texture first. Swapping these for real ones changes nothing anywhere else:

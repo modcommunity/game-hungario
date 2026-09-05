@@ -40,7 +40,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	print("dot-2d-hungry: avatar content, through the cloud")
+	print("game-hungario: avatar content, through the cloud")
 	print("")
 
 	DotPaths.remove_tree(WORK)

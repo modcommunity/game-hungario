@@ -41,7 +41,7 @@ func _ready() -> void:
 func _run() -> void:
 	var serving := "--serve" in OS.get_cmdline_user_args()
 
-	print("dot-2d-hungry dedicated server")
+	print("game-hungario dedicated server")
 	print("")
 
 	if not serving:

@@ -40,7 +40,7 @@ func _run() -> void:
 	var public_path := _arg(args, "--public", DEFAULT_PUB)
 	var mirror := _arg(args, "--mirror", "")
 
-	print("dot-2d-hungry: publishing avatar content")
+	print("game-hungario: publishing avatar content")
 	print("")
 
 	var key := await _key(key_path, public_path)

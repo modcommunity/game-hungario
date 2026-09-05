@@ -66,7 +66,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	print("dot-2d-hungry sandbox: a real socket")
+	print("game-hungario sandbox: a real socket")
 	print("")
 
 	_cleanup()
