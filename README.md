@@ -13,7 +13,7 @@ I intend on reviewing code, testing, and editing documentation regularly. If you
 
 ## An Arena Game Built Out of `dot-*`
 An agar.io-shaped game where the thing you steer is a monster and the thing riding it is
-your avatar. Built out of the [dot-*](../NOTES.md) family, and meant to be played from a
+your avatar. Built out of the [dot-*](https://github.com/modcommunity) family, and meant to be played from a
 link.
 
 ```bash
@@ -30,18 +30,18 @@ On a phone, a drag steers and there are two buttons.
 
 | | |
 | --- | --- |
-| [dot-core](../dot-core) | Everything shared. |
-| [dot-2d](../dot-2d) | Movement, mass rules, the spatial hash, the deterministic food fields. |
-| [dot-net](../dot-net) | Tick sync, snapshots, interpolation, prediction, interest management. |
-| [dot-server](../dot-server) | The dedicated server, chat, votes, and switching modes under live players. |
-| [dot-match](../dot-match) | Rounds, the scoreboard, respawning. |
-| [dot-ui](../dot-ui) | Mass readout, leaderboard, feed, minimap, menus, key bindings. |
-| [dot-user-avatar](../dot-user-avatar) | The rider: an avatar as a document a server checks without loading art. |
-| [dot-loadout](../dot-loadout) | Throwables and traits, as data a server validates without loading any of it. |
-| [dot-platform](../dot-platform) | Identity, profile and avatar joined into one admission. |
-| [dot-cloud](../dot-cloud) | Signed, versioned delivery of the rider's parts. |
-| [dot-auth](../dot-auth) · [dot-user](../dot-user) | Underneath dot-platform: who you are, and the profile that follows you. |
-| [dot-serve](../dot-serve) | Starting a server. |
+| [dot-core](https://github.com/modcommunity/dot-core) | Everything shared. |
+| [dot-2d](https://github.com/modcommunity/dot-2d) | Movement, mass rules, the spatial hash, the deterministic food fields. |
+| [dot-net](https://github.com/modcommunity/dot-net) | Tick sync, snapshots, interpolation, prediction, interest management. |
+| [dot-server](https://github.com/modcommunity/dot-server) | The dedicated server, chat, votes, and switching modes under live players. |
+| [dot-match](https://github.com/modcommunity/dot-match) | Rounds, the scoreboard, respawning. |
+| [dot-ui](https://github.com/modcommunity/dot-ui) | Mass readout, leaderboard, feed, minimap, menus, key bindings. |
+| [dot-user-avatar](https://github.com/modcommunity/dot-user-avatar) | The rider: an avatar as a document a server checks without loading art. |
+| [dot-loadout](https://github.com/modcommunity/dot-loadout) | Throwables and traits, as data a server validates without loading any of it. |
+| [dot-platform](https://github.com/modcommunity/dot-platform) | Identity, profile and avatar joined into one admission. |
+| [dot-cloud](https://github.com/modcommunity/dot-cloud) | Signed, versioned delivery of the rider's parts. |
+| [dot-auth](https://github.com/modcommunity/dot-auth) · [dot-user](https://github.com/modcommunity/dot-user) | Underneath dot-platform: who you are, and the profile that follows you. |
+| [dot-serve](https://github.com/modcommunity/dot-serve) | Starting a server. |
 
 ## The rules
 

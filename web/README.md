@@ -79,7 +79,7 @@ That listens on **WebSocket**, which is what a browser can reach. Put a TLS term
 front of it and give the page `?server=wss://your-host:27081`; a page on HTTPS cannot
 reach `ws://` and browsers report that as a generic failure.
 
-`dotserve` from [dot-serve](../../dot-serve) does the same thing with a `server.cfg`, a
+`dotserve` from [dot-serve](https://github.com/modcommunity/dot-serve) does the same thing with a `server.cfg`, a
 refusal to run on a guessable RCON password, and an address you can paste to a friend.
 
 ## Phones
