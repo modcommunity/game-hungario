@@ -64,12 +64,56 @@ static func frenzy() -> HungryPreset:
 	return preset
 
 
+## Long and narrow. A corridor rather than a square, which is a different game.
+##
+## [b]This is a LEVEL, not a third set of dials, and the difference is the aspect
+## ratio.[/b] Classic and Frenzy are the same square at two sizes: everything is reachable
+## in every direction, so being caught is a failure of speed. A five-to-one corridor
+## removes the third and fourth directions — there is nowhere sideways to run, being
+## chased means being chased *along* something, and splitting to get past somebody is the
+## move rather than an alternative to it. Nothing about the code changes; the shape does.
+##
+## [b]It is also the first non-square world this game has ever run[/b], which is worth
+## more than the mode is. A square world hides every place that reads `world_size.x` where
+## it meant `.y`, or that derives a radius from one component: the value is the same, so
+## the bug is invisible. `headless_round` walks a monster into all four walls here for
+## exactly that reason.
+static func gauntlet() -> HungryPreset:
+	var preset := HungryPreset.new()
+	preset.id = &"gauntlet"
+	preset.display_name = "Gauntlet"
+
+	# Five to one, and the same area as Frenzy's square. Same amount of food per unit of
+	# floor, so the mode is the shape and not the density — otherwise a corridor would
+	# also be a starvation mode and there would be no telling which half was doing the
+	# work.
+	preset.world_size = Vector2(6708.0, 1342.0)
+	preset.food_target = 700
+	preset.fruit_target = 18
+	preset.item_target = 26
+	preset.win_mass = 900.0
+	preset.max_speed = 480.0
+
+	# Between the other two. A corridor punishes a split harder than a square does —
+	# there is nowhere to spread out to while the pieces are apart — so sixteen seconds
+	# would make splitting never worth it and four would make it free.
+	preset.merge_delay_sec = 9.0
+	preset.time_limit_sec = 300.0
+	return preset
+
+
 static func for_id(preset_id: StringName) -> HungryPreset:
-	return frenzy() if preset_id == &"frenzy" else classic()
+	match preset_id:
+		&"frenzy":
+			return frenzy()
+		&"gauntlet":
+			return gauntlet()
+		_:
+			return classic()
 
 
 func validate() -> DotResult:
-	if world_size.x < 400.0 or world_size.y < 400.0:
+	if minf(world_size.x, world_size.y) < 400.0:
 		return DotResult.fail(
 			DotError.CODE_INVALID,
 			"A world smaller than 400 units is smaller than a grown monster."

@@ -28,9 +28,10 @@ const SNAPSHOT_RATE := 20
 ## which counts up from 1.
 const BOT_ID_BASE := 900001
 
-## The two modes this server can switch between.
+## The three modes this server can switch between.
 const GAME_CLASSIC := "hungry_classic"
 const GAME_FRENZY := "hungry_frenzy"
+const GAME_GAUNTLET := "hungry_gauntlet"
 
 var world: HungryWorld = null
 var net: DotNetManager = null
@@ -733,7 +734,7 @@ func _sync_pack() -> void:
 
 # --- Games -----------------------------------------------------------------
 
-## The two modes, so `changegame` and a vote have something to change to.
+## The three modes, so `changegame` and a vote have something to change to.
 ##
 ## Both ship inside the build, so [member DotGameDescriptor.manifest_url] is empty and no
 ## client has to download anything to follow a change. A game whose content lives on a CDN
@@ -744,6 +745,7 @@ static func game_descriptors() -> Array[DotGameDescriptor]:
 	for row in [
 		[GAME_CLASSIC, "Hungario: Classic", "res://game/modes/classic.tscn"],
 		[GAME_FRENZY, "Hungario: Frenzy", "res://game/modes/frenzy.tscn"],
+		[GAME_GAUNTLET, "Hungario: Gauntlet", "res://game/modes/gauntlet.tscn"],
 	]:
 		var descriptor := DotGameDescriptor.new()
 		descriptor.game_id = String(row[0])

@@ -346,9 +346,33 @@ burst is an arbitrary fragment. `HungryInterest` measures from the monster's cen
 instead, grows the rectangle linearly in *radius* (a monster wide enough to fill the screen
 cannot otherwise see anything it might eat), and scores big-and-near above small-and-far.
 
+## Three modes, and the third one is a shape
+
+`classic` and `frenzy` are the same square at two sizes: bigger and slower, smaller and
+faster, with `merge_delay_sec` deciding whether splitting is a commitment or a move.
+
+**`gauntlet` is a five-to-one corridor, and that is a different game rather than a third
+set of dials.** A square is reachable in every direction, so being caught is a failure of
+speed; a corridor removes the third and fourth directions — there is nowhere sideways to
+run, being chased means being chased *along* something, and splitting to get past somebody
+becomes the move rather than an alternative to it. It has the **same floor area and the
+same food count as Frenzy**, deliberately: otherwise it would be a starvation mode as well
+and there would be no telling which half was doing the work.
+
+**It is also the first non-square world this game has ever run, and that is worth more
+than the mode is.** A square hides every place that reads `world_size.x` where it meant
+`.y`, or derives one bound from one component: the value is the same, so the bug is
+invisible. `headless_round`'s **the gauntlet** section walks a monster into all four walls
+— and the pair on the short axis is the pair a square can never test — then across the
+length of the corridor, then measures the span of the food that actually exists rather
+than its count.
+
+Nothing was wrong. Twelve checks that would have passed on a square whether or not the
+code were right now pass on a shape where they mean something.
+
 ## Game switching: the world is the scene, the manager is not
 
-`changegame frenzy` frees the running mode scene and instantiates the next one, with the
+`changegame frenzy` — or `gauntlet` — frees the running mode scene and instantiates the next one, with the
 players still connected. So the world lives *inside* the scene (`HungryMode`), and the
 `DotNetManager`, the bridge and the loadout manager do not — rebuilding a manager resets
 the message ids, the peer records and the clock, which is a disconnect for everybody and
@@ -446,14 +470,14 @@ find . -name '*.gd' -not -path './.godot/*' -not -path './addons/*' | while read
     godot --headless --path . --check-only --script "res://${f#./}"
 done
 
-godot --headless --path . res://examples/headless_round.tscn   # 186 — the game
+godot --headless --path . res://examples/headless_round.tscn   # 198 — the game
 godot --headless --path . res://examples/headless_net.tscn     # 107 — the netcode
 godot --headless --path . res://examples/dedicated.tscn        #  97 — a real DotServer
 godot --headless --path . res://examples/sandbox.tscn          #  68 — two real clients
 godot --headless --path . res://examples/content.tscn          #  45 — the cloud path
 ```
 
-487 checks. Add `-- --verbose` to `dedicated`, `sandbox` or `content` when one fails and
+516 checks. Add `-- --verbose` to `dedicated`, `sandbox` or `content` when one fails and
 the reason is in a log line rather than in the assertion.
 
 **Run `headless_round` after any change to dot-2d** and **`headless_net` after any change

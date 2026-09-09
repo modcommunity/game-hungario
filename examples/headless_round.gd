@@ -65,6 +65,7 @@ func _run() -> void:
 	_test_loadout()
 	_test_rider()
 	_test_interface()
+	_test_the_gauntlet()
 
 	print("")
 	_check(
@@ -1069,6 +1070,134 @@ func _test_round_reset() -> void:
 			phantoms += 1
 
 	_check(phantoms == 0, "and there are no phantoms (%d)" % phantoms)
+
+	_drop(world)
+	_done()
+
+
+## The Gauntlet: a five-to-one corridor, and the first non-square world this game runs.
+##
+## [b]The mode is the point and the shape is the reason it is worth a section.[/b] Classic
+## and Frenzy are the same square at two sizes, so every place that reads `world_size.x`
+## where it meant `.y` — or derives one bound from one component — gives the right answer
+## and is invisible. A corridor is where the two components disagree, so it is the only
+## arrangement in which those are findable at all.
+##
+## Every check below would pass on a square world whether or not the code were right.
+func _test_the_gauntlet() -> void:
+	_section("the gauntlet")
+
+	var preset := HungryPreset.gauntlet()
+
+	if not _check(preset.validate().ok, "the preset is usable"):
+		_done()
+		return
+
+	_check(
+		preset.world_size.x > preset.world_size.y * 4.0,
+		"and it is a corridor rather than a square",
+		"%.0f by %.0f" % [preset.world_size.x, preset.world_size.y]
+	)
+
+	# The same area as Frenzy's square, so the mode is the SHAPE and not the density. A
+	# corridor with the same food count in a quarter of the floor would be a starvation
+	# mode as well, and there would be no telling which half was doing the work.
+	var frenzy := HungryPreset.frenzy()
+	var area := preset.world_size.x * preset.world_size.y
+	var square := frenzy.world_size.x * frenzy.world_size.y
+
+	_check(
+		absf(area / square - 1.0) < 0.02,
+		"with the same floor area as Frenzy",
+		"%.0f against %.0f" % [area, square]
+	)
+	_check(
+		preset.food_target == frenzy.food_target,
+		"and the same amount of food on it"
+	)
+
+	var world := _make_world(preset, SEED + 31)
+	_settle(world)
+
+	var bounds := world.arena.bounds
+
+	_check(
+		absf(bounds.size.x - preset.world_size.x) < 0.5
+			and absf(bounds.size.y - preset.world_size.y) < 0.5,
+		"the arena is the shape the preset asked for",
+		"%s" % str(bounds.size)
+	)
+
+	world.add_player(1, "Ada")
+	world.spawn(1, bounds.get_center())
+	_settle(world)
+
+	var monster := world.monster_for(1)
+
+	if not _check(monster != null and monster.alive, "a monster spawns in it"):
+		_drop(world)
+		_done()
+		return
+
+	# Walked into all four walls in turn, and it is the pair on the SHORT axis that a
+	# square world can never test: a clamp using the wrong component would let a monster
+	# out of the top and bottom of a corridor while the left and right looked perfect.
+	var corners := {
+		"east": Vector2(bounds.end.x + 4000.0, bounds.get_center().y),
+		"west": Vector2(bounds.position.x - 4000.0, bounds.get_center().y),
+		"north": Vector2(bounds.get_center().x, bounds.position.y - 4000.0),
+		"south": Vector2(bounds.get_center().x, bounds.end.y + 4000.0),
+	}
+
+	for side in corners:
+		var target: Vector2 = corners[side]
+
+		for _i in range(TICK_RATE * 6):
+			world.tick({1: _aim_at(monster.centre(), target)})
+
+		var here := monster.centre()
+		var out := (
+			here.x < bounds.position.x - 1.0
+			or here.x > bounds.end.x + 1.0
+			or here.y < bounds.position.y - 1.0
+			or here.y > bounds.end.y + 1.0
+		)
+
+		_check(not out, "and cannot walk out of the %s wall" % side, "at %s" % str(here))
+
+	# It reached the far end. A corridor whose length nothing can cross is a corridor
+	# nobody meets anybody in, and the run above is the only thing that would say so.
+	for _i in range(TICK_RATE * 20):
+		world.tick({1: _aim_at(monster.centre(), corners["east"])})
+
+	_check(
+		monster.centre().x > bounds.get_center().x + bounds.size.x * 0.3,
+		"and can cross the length of it",
+		"%.0f of %.0f" % [monster.centre().x - bounds.position.x, bounds.size.x]
+	)
+
+	# The food is spread over the whole corridor rather than bunched into the square the
+	# generator would produce if it hashed into one component. Measured as the span of
+	# what actually exists, because the count is right either way.
+	var spread_x := 0.0
+	var spread_y := 0.0
+	var lowest := Vector2(INF, INF)
+	var highest := Vector2(-INF, -INF)
+
+	for grid_id in world.field.alive_ids():
+		var at := world.field.position_of(grid_id)
+		lowest = lowest.min(at)
+		highest = highest.max(at)
+
+	spread_x = highest.x - lowest.x
+	spread_y = highest.y - lowest.y
+
+	_check(
+		spread_x > bounds.size.x * 0.8 and spread_y > bounds.size.y * 0.8,
+		"and the food is spread over the whole of it",
+		"%.0f by %.0f in a %.0f by %.0f room"
+			% [spread_x, spread_y, bounds.size.x, bounds.size.y]
+	)
 
 	_drop(world)
 	_done()
