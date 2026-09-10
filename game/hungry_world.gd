@@ -94,6 +94,15 @@ var motor: Dot2DMotor = null
 ## without loading anything.
 var items: DotItemCatalogue = null
 
+## What decides whether a thrown item does anything, and how much.
+##
+## `func(thrower_id, victim_id, item, distance) -> {"allowed": bool, "pieces": int}`.
+##
+## [b]Unset means the constants this file has always used.[/b] [HungryCombat] is what
+## fills it, and a world that named that class would be a world that could not run without
+## dot-combat installed — which every one of this project's own headless suites does.
+var damage_gate: Callable = Callable()
+
 ## player id -> [HungryMonster].
 var _monsters: Dictionary = {}
 
@@ -564,6 +573,62 @@ func _destroy_piece(piece: HungryPiece) -> void:
 func _grow(piece: HungryPiece, mass: float) -> void:
 	piece.set_mass(mass, tunables.mass_rules)
 	piece.state.position = arena.clamp_position(piece.state.position, piece.radius())
+
+
+## Takes a piece out of the world because something that is not a player ate it.
+##
+## [b]The world acts and the caller decides, which is [DotTimer]'s division exactly.[/b]
+## [HungryHunters] resolves a hunter meeting a piece — hunters are a handful and are not in
+## the spatial hash every food lookup pays for — and then says so here, so the destruction,
+## the signal, the monster's own book-keeping and the netcode's despawn all go through the
+## one path a player's eat already goes through. A caller that freed the piece itself would
+## be the `reset_world` bug again: from the world's point of view it really would be gone,
+## and every client would keep it for ever.
+##
+## Returns false when there is no such piece, which is a real sequence rather than an
+## error: two hunters can reach one piece on the same tick.
+func devour_piece(piece_id: int) -> bool:
+	var piece: HungryPiece = _pieces.get(piece_id)
+
+	if piece == null:
+		return false
+
+	var monster := monster_for(piece.owner_id)
+	var lost := piece.mass()
+
+	_destroy_piece(piece)
+
+	# The death is announced the same way an eat announces one. Without this a player
+	# whose last piece a hunter took is `alive == false` with nothing having said so, so
+	# the respawn queue never runs and they watch an empty arena for ever.
+	if monster != null and monster.piece_count() == 0 and monster.alive:
+		monster.alive = false
+		player_died.emit(monster.id, 0)
+
+	piece_eaten.emit(0, piece.owner_id, lost)
+	return true
+
+
+## Adds mass to somebody's biggest piece, because they ate something the world owns.
+##
+## [b]Through [method _grow], which is what keeps a growing piece inside the arena.[/b]
+## Growing is a move: a piece against a wall that gains mass gets wider and its edge ends
+## up outside, because the motor only clamps a piece that is *moving*. game-blob measured
+## 2.8 units past the wall before anybody noticed.
+func feed_player(player_id: int, mass: float) -> bool:
+	var monster := monster_for(player_id)
+
+	if monster == null or not monster.alive:
+		return false
+
+	var biggest := monster.rider_piece()
+
+	if biggest == null:
+		return false
+
+	_grow(biggest, biggest.mass() + mass)
+	monster.best_mass = maxf(monster.best_mass, monster.mass())
+	return true
 
 
 # --- Simulation ------------------------------------------------------------
@@ -1112,7 +1177,7 @@ func _split(monster: HungryMonster, command: Dot2DCommand) -> int:
 ## [b]Not the same operation as a split, and it must not be.[/b] A split is a decision
 ## made along an aim; a burst is done to you, so it is radial, it ignores the cooldown,
 ## and it applies to every eligible piece at once. Returns how many new pieces it made.
-func burst(monster: HungryMonster, by_player: int) -> int:
+func burst(monster: HungryMonster, by_player: int, into: int = 0) -> int:
 	if monster == null or not monster.alive:
 		return 0
 
@@ -1135,19 +1200,25 @@ func burst(monster: HungryMonster, by_player: int) -> int:
 			continue
 
 		var room := rules.max_pieces - monster.piece_count() + 1
-		var into := mini(HungryContent.PEPPER_PIECES, room)
+		# [b]How many pieces is a parameter now, and zero means "the usual".[/b] It is
+		# what [HungryCombat] turns a resolved damage amount into: a pepper thrown from
+		# across the arena scatters somebody less than one thrown at point blank, which is
+		# falloff — and falloff is dot-combat's, not this file's. Zero rather than a
+		# default in the signature so a caller that has no opinion says so.
+		var wanted := into if into >= 2 else HungryContent.PEPPER_PIECES
+		var pieces := mini(wanted, room)
 
-		if into < 2:
+		if pieces < 2:
 			continue
 
-		var share := piece.mass() / float(into)
+		var share := piece.mass() / float(pieces)
 		var origin := piece.position()
 		piece.set_mass(share, rules)
 
-		for step in range(1, into):
+		for step in range(1, pieces):
 			# Radial, and seeded from the piece id so two machines that replay this tick
 			# scatter the pieces the same way.
-			var angle := TAU * float(step) / float(into) + float(piece.id) * 0.37
+			var angle := TAU * float(step) / float(pieces) + float(piece.id) * 0.37
 			var direction := Vector2.from_angle(angle)
 			var at := arena.clamp_position(
 				origin + direction * (piece.radius() + 3.0), rules.radius_for(share)
@@ -1364,10 +1435,34 @@ func _land(shot: HungryProjectile, at: Vector2, hit_player: int) -> void:
 	shot.resolved = true
 	_shots.erase(shot.id)
 
+	# What a throwable does to a person, asked of whatever the host installed.
+	#
+	# [b]Unset is the whole game, and that is deliberate.[/b] A deployment with no
+	# dot-combat gets the constants this file has always used; one with [HungryCombat]
+	# gets falloff, a self-hit rule and a floor, and the *only* thing that changes here is
+	# how many pieces a burst makes. A world that named the combat layer would be a world
+	# that could not run without it, and this game's own suite runs it both ways.
+	var pieces := 0
+
+	if hit_player != 0 and damage_gate.is_valid():
+		var verdict: Variant = damage_gate.call(
+			shot.thrower_id, hit_player, shot.item, shot.origin.distance_to(at)
+		)
+
+		if verdict is Dictionary:
+			if not bool((verdict as Dictionary).get("allowed", true)):
+				# Refused: too far, or a rule said no. The projectile is still spent and
+				# still announced, so a client draws the impact — a throw that vanished
+				# would read as the item not working.
+				projectile_impact.emit(shot, at, 0)
+				return
+
+			pieces = int((verdict as Dictionary).get("pieces", 0))
+
 	match shot.item:
 		HungryContent.ITEM_PEPPER:
 			if hit_player != 0:
-				burst(monster_for(hit_player), shot.thrower_id)
+				burst(monster_for(hit_player), shot.thrower_id, pieces)
 
 		HungryContent.ITEM_FROST:
 			if hit_player != 0:

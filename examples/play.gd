@@ -41,6 +41,10 @@ var _player_name: LineEdit = null
 var _status: Label = null
 var _connect_button: Button = null
 
+## The server list. Built on demand: somebody who followed a link straight into a game
+## never opens it, and a [DotBrowser] that exists is one sending packets on a timer.
+var _browser: HungryBrowser = null
+
 
 func _ready() -> void:
 	DotLog.set_level(DotLog.Level.INFO)
@@ -136,6 +140,11 @@ func _build_menu() -> void:
 	_connect_button.pressed.connect(_connect)
 	column.add_child(_connect_button)
 
+	var find := Button.new()
+	find.text = "Find a server"
+	find.pressed.connect(_open_browser)
+	column.add_child(find)
+
 	var offline := Button.new()
 	offline.text = "Play offline"
 	offline.pressed.connect(_play_offline)
@@ -150,6 +159,31 @@ func _build_menu() -> void:
 	# once is better than a Host button that fails.
 	if DotPlatform.is_web():
 		_status.text = "Browser build: client only."
+
+
+## Opens the server list, building it the first time.
+##
+## Built on demand, and it is not laziness: a [DotBrowser] that exists refreshes itself on
+## a timer, which is a packet to every server it knows about — and somebody who followed a
+## link straight into a game never opens this at all.
+func _open_browser() -> void:
+	if _browser == null:
+		var layer := Control.new()
+		layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_menu.add_child(layer)
+
+		_browser = HungryBrowser.new()
+		_browser.name = "Servers"
+		layer.add_child(_browser)
+
+		_browser.joined.connect(func(address: String) -> void:
+			_address.text = address
+			_browser.visible = false
+			_connect()
+		)
+		return
+
+	_browser.visible = not _browser.visible
 
 
 func _connect() -> void:

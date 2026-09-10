@@ -51,6 +51,12 @@ var threat_colour := Color(1.0, 0.35, 0.32, 0.85)
 ## real content and content is a scene.
 var _riders: Dictionary = {}
 
+## What is in the arena besides the players. Read, never written — a renderer that nudged
+## one would be a renderer fighting the simulation, and the symptom is a stutter nobody
+## can locate.
+var hunters: HungryHunters = null
+var hazards: HungryHazards = null
+
 ## The arena floor. Space, one shade off the void so the boundary reads without the wall
 ## having to do all the work.
 var background := Color(0.046, 0.052, 0.088)
@@ -112,8 +118,110 @@ func _draw() -> void:
 
 	_draw_ground(view)
 	_draw_field(view)
+	# Hazards under everything that moves and over the ground: a rock is part of the arena
+	# and a monster walks in front of it. Drawn before the food as well, so a rock never
+	# hides a crumb — a crumb a player cannot see is a crumb they do not go for, and the
+	# arena would quietly develop dead zones.
+	_draw_hazards(view)
+	_draw_hunters(view)
 	_draw_projectiles()
 	_draw_monsters(view)
+
+
+## What people have had put in the arena. Read from the same object the simulation
+## resolves against, so a rock a client draws is a rock the server pushes them out of.
+func _draw_hazards(view: Rect2) -> void:
+	if hazards == null:
+		return
+
+	for entry in hazards.placements().values():
+		var placement: Dictionary = entry
+		var def: DotPropDef = placement["def"]
+		var at: Vector2 = placement["at"]
+		var radius := HungryHazards.radius_of(def)
+
+		if not view.has_point(at) and view.grow(radius).has_point(at) == false:
+			continue
+
+		var colour := HungryHazards.colour_of(def)
+
+		match HungryHazards.effect_of(def):
+			&"burst":
+				# A ring of spikes rather than a disc, because a thing that hurts you has
+				# to look unlike a thing that merely stops you. A player who cannot tell a
+				# rock from a spike learns the difference by being scattered.
+				draw_circle(at, radius * 0.55, Color(colour, 0.35))
+
+				for step in range(8):
+					var angle := TAU * float(step) / 8.0
+					draw_line(
+						at + Vector2.from_angle(angle) * radius * 0.45,
+						at + Vector2.from_angle(angle) * radius,
+						colour, 3.0
+					)
+			&"lure":
+				# Faint and pulsing-free: a lure does nothing to a player and must not
+				# read as something to avoid.
+				draw_circle(at, radius, Color(colour, 0.18))
+				draw_arc(at, radius, 0.0, TAU, 28, Color(colour, 0.6), 2.0)
+			_:
+				draw_circle(at, radius, colour)
+				draw_arc(at, radius, 0.0, TAU, 32, colour.darkened(0.4), 2.5)
+
+
+## The NPC monsters. Drawn like a piece, because they are one to a player's eye — and the
+## comparison a player makes is the same one: is that bigger than me.
+func _draw_hunters(view: Rect2) -> void:
+	if hunters == null:
+		return
+
+	var mine := world.monster_for(local_player_id) if world != null else null
+	var my_mass := mine.mass() if mine != null and mine.alive else 0.0
+
+	for entry in hunters.hunters().values():
+		var state: Dictionary = entry
+
+		if not bool(state["alive"]):
+			continue
+
+		var at: Vector2 = state["at"]
+		var radius: float = state["radius"]
+
+		if not view.grow(radius).has_point(at):
+			continue
+
+		var kind: StringName = state["kind"]
+		var mass := HungryHunters.mass_of(kind)
+
+		# Ringed exactly the way another player is, and by the same rule: green if you
+		# could eat it, red if it could eat you, and NEITHER when the two are inside the
+		# ratio of each other. That gap is the interesting case and the one a colour would
+		# lie about.
+		var ratio := 1.25
+
+		if world != null and world.tunables != null and world.tunables.mass_rules != null:
+			ratio = world.tunables.mass_rules.eat_ratio
+
+		draw_circle(at, radius, Color(0.28, 0.22, 0.32, 0.92))
+		draw_arc(at, radius, 0.0, TAU, 40, Color(0.55, 0.42, 0.62), 2.0)
+
+		# The spines are what say "this is not a player". A hunter that looked like a
+		# monster would be one people try to talk to.
+		for step in range(6):
+			var angle := TAU * float(step) / 6.0 + at.x * 0.01
+			draw_line(
+				at + Vector2.from_angle(angle) * radius * 0.8,
+				at + Vector2.from_angle(angle) * radius * 1.25,
+				Color(0.62, 0.48, 0.70), 2.0
+			)
+
+		if my_mass <= 0.0:
+			continue
+
+		if my_mass >= mass * ratio:
+			draw_arc(at, radius + 6.0, 0.0, TAU, 40, prey_colour, 2.5)
+		elif mass >= my_mass * ratio:
+			draw_arc(at, radius + 6.0, 0.0, TAU, 40, threat_colour, 2.5)
 
 
 func _draw_ground(view: Rect2) -> void:

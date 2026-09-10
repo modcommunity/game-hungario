@@ -41,6 +41,18 @@ enum Kind {
 	BOARD,
 	## What you are carrying. Sent only to the player it is about.
 	CARRY,
+	## One chat line, already routed, sanitised and addressed by [DotChatRouter].
+	##
+	## The server decides who gets one; a client that receives it draws it. There is no
+	## audience field on the wire for that reason — a client told who *else* could hear a
+	## whisper would be a client that could report it.
+	CHAT,
+	## A hunter came into existence, or moved, or is gone. See [HungryHunters].
+	HUNTER,
+	## A hazard was placed in the arena, or cleared.
+	HAZARD,
+	## A board, a rank or an achievement somebody just earned.
+	PROGRESS,
 }
 
 ## What a client asks for.
@@ -51,6 +63,14 @@ enum Ask {
 	AVATAR,
 	## Here is what I want to bring in.
 	LOADOUT,
+	## I typed a line. The server decides what channel it lands on and who hears it.
+	##
+	## [b]The channel is a request, not an instruction.[/b] It is what the player had
+	## selected; [DotChatRouter] validates it against the channel's own permission rules,
+	## so asking for the admin channel is refused rather than obeyed.
+	SAY,
+	## Rock the vote, nominate, or cast one. The body is a token the vote source resolves.
+	VOTE,
 }
 
 ## Position range for everything in this file, matching [Dot2DNetSync] so that a
@@ -484,3 +504,219 @@ static func read_avatar(
 	schema: DotAvatarSchema
 ) -> DotResult:
 	return DotAvatarSync.read(schema, reader)
+
+
+# --- CHAT ------------------------------------------------------------------
+
+const CHAT_BYTES := 160
+const CHAT_CHANNEL_BYTES := 24
+const CHAT_KEY_BYTES := 48
+const CHAT_KIND_BITS := 4
+
+
+## One chat line, from [method DotChatMessage.to_dictionary], plus who said it.
+##
+## [b]Encoded field by field rather than as JSON.[/b] A JSON body is a variable-length blob
+## a reader cannot bound and a hostile server could make enormous, and it costs about three
+## times the bytes for a message whose whole point is that it is small and frequent.
+##
+## The `x` (meta) field is not carried as a dictionary. What this game needs out of it is
+## one number — the player the line belongs to — so that is a field, bounded like every
+## other, and the reader puts it back under `x` where
+## [method DotChatMessage.from_dictionary] finds it. An arbitrary dictionary on the wire is
+## an arbitrary dictionary a server can put anything in.
+##
+## The kind travels as an **index into [constant DotChatMessage.KIND_NAMES]**, not as the
+## name — one table used in both directions, which is the lesson dot-moderation paid for
+## when a stored voice mute loaded back as a warning.
+static func write_chat(wire: Dictionary) -> PackedByteArray:
+	var writer := _writer()
+	writer.write_varint(int(wire.get("n", 0)))
+	writer.write_uint(int(wire.get("t", 0)), 32)
+	writer.write_string(str(wire.get("c", "")), CHAT_CHANNEL_BYTES)
+	writer.write_uint(
+		maxi(0, DotChatMessage.kind_from_name(str(wire.get("k", "say")))), CHAT_KIND_BITS
+	)
+	writer.write_string(str(wire.get("s", "")), CHAT_KEY_BYTES)
+	writer.write_string(str(wire.get("d", "")), NAME_BYTES)
+	writer.write_string(str(wire.get("w", "")), CHAT_KEY_BYTES)
+	writer.write_string(str(wire.get("m", "")), CHAT_BYTES)
+
+	var meta: Variant = wire.get("x")
+	var player_id: int = 0
+
+	if typeof(meta) == TYPE_DICTIONARY:
+		player_id = int((meta as Dictionary).get("p", 0))
+
+	writer.write_varint(maxi(0, player_id))
+	return writer.to_bytes()
+
+
+## The inverse. Returns the dictionary [method DotChatClient.receive] takes.
+##
+## An unknown kind index comes back as `"say"` rather than as an empty string, because
+## [method DotChatMessage.from_dictionary] refuses a name it does not know — and refusing a
+## whole line for a field nobody can see loses the text as well.
+static func read_chat(reader: DotNetReader) -> Dictionary:
+	var out := {
+		"n": reader.read_varint(),
+		"t": reader.read_uint(32),
+		"c": reader.read_string(CHAT_CHANNEL_BYTES),
+	}
+
+	var kind := reader.read_uint(CHAT_KIND_BITS)
+	out["k"] = DotChatMessage.KIND_NAMES[kind] \
+		if kind >= 0 and kind < DotChatMessage.KIND_NAMES.size() else "say"
+
+	out["s"] = reader.read_string(CHAT_KEY_BYTES)
+	out["d"] = reader.read_string(NAME_BYTES)
+	out["w"] = reader.read_string(CHAT_KEY_BYTES)
+	out["m"] = reader.read_string(CHAT_BYTES)
+
+	var player_id := reader.read_varint()
+
+	if player_id > 0:
+		out["x"] = {"p": player_id}
+
+	out["ok"] = reader.ok()
+	return out
+
+
+static func write_say(channel_id: StringName, text: String) -> PackedByteArray:
+	var writer := _writer()
+	writer.write_string(String(channel_id), CHAT_CHANNEL_BYTES)
+	writer.write_string(text, CHAT_BYTES)
+	return writer.to_bytes()
+
+
+static func read_say(reader: DotNetReader) -> Dictionary:
+	var out := {
+		"channel": reader.read_string(CHAT_CHANNEL_BYTES),
+		"text": reader.read_string(CHAT_BYTES),
+	}
+	out["ok"] = reader.ok()
+	return out
+
+
+# --- HUNTERS ---------------------------------------------------------------
+
+## Bits for a hunter's id and its kind index. See [HungryHunters].
+const HUNTER_ID_BITS := 16
+const HUNTER_KIND_BITS := 6
+
+## Radius quantisation. A hunter is drawn as a circle and nothing needs a tenth of a unit.
+const HUNTER_RADIUS_BITS := 10
+const HUNTER_RADIUS_MAX := 400.0
+
+
+## A hunter's whole state, in one message.
+##
+## [b]Hunters are not dot-net entities and that is deliberate.[/b] A monster's piece is:
+## it is predicted, reconciled and interest-managed, all of which a player's own input
+## needs. A hunter is server-authoritative, unpredicted, and there are at most a handful —
+## the same division dot-props makes for a rigid body, reached from the other side. One
+## reliable event a few times a second is cheaper than an entity's declarations and does
+## not put a new id space beside the piece ids.
+static func write_hunter(
+	hunter_id: int, kind_index: int, at: Vector2, radius: float, alive: bool
+) -> PackedByteArray:
+	var writer := _writer()
+	writer.write_uint(hunter_id, HUNTER_ID_BITS)
+	writer.write_uint(kind_index, HUNTER_KIND_BITS)
+	writer.write_bool(alive)
+	_write_position(writer, at)
+	writer.write_float_range(radius, 0.0, HUNTER_RADIUS_MAX, HUNTER_RADIUS_BITS)
+	return writer.to_bytes()
+
+
+static func read_hunter(reader: DotNetReader) -> Dictionary:
+	var out := {
+		"hunter_id": reader.read_uint(HUNTER_ID_BITS),
+		"kind_index": reader.read_uint(HUNTER_KIND_BITS),
+		"alive": reader.read_bool(),
+		"position": _read_position(reader),
+		"radius": reader.read_float_range(0.0, HUNTER_RADIUS_MAX, HUNTER_RADIUS_BITS),
+	}
+	out["ok"] = reader.ok()
+	return out
+
+
+# --- HAZARDS ---------------------------------------------------------------
+
+const HAZARD_ID_BITS := 16
+const HAZARD_KIND_BITS := 6
+
+
+static func write_hazard(
+	place_id: int, kind_index: int, at: Vector2, present: bool
+) -> PackedByteArray:
+	var writer := _writer()
+	writer.write_uint(place_id, HAZARD_ID_BITS)
+	writer.write_uint(kind_index, HAZARD_KIND_BITS)
+	writer.write_bool(present)
+	_write_position(writer, at)
+	return writer.to_bytes()
+
+
+static func read_hazard(reader: DotNetReader) -> Dictionary:
+	var out := {
+		"place_id": reader.read_uint(HAZARD_ID_BITS),
+		"kind_index": reader.read_uint(HAZARD_KIND_BITS),
+		"present": reader.read_bool(),
+		"position": _read_position(reader),
+	}
+	out["ok"] = reader.ok()
+	return out
+
+
+# --- PROGRESS --------------------------------------------------------------
+
+const PROGRESS_ID_BYTES := 40
+const PROGRESS_TEXT_BYTES := 96
+
+
+## Something a player earned: an achievement, a rank, a personal best.
+##
+## [b]Text, not a rule.[/b] The rules are [DotAchievementCatalogue]'s and stay on the
+## server: a client that held them could tell a player they had earned something the
+## server disagreed about, and the server is the one filing it.
+static func write_progress(
+	player_id: int, id: StringName, title: String, value: int
+) -> PackedByteArray:
+	var writer := _writer()
+	writer.write_varint(player_id)
+	writer.write_string(String(id), PROGRESS_ID_BYTES)
+	writer.write_string(title, PROGRESS_TEXT_BYTES)
+	writer.write_varint(maxi(0, value))
+	return writer.to_bytes()
+
+
+static func read_progress(reader: DotNetReader) -> Dictionary:
+	var out := {
+		"player_id": reader.read_varint(),
+		"id": reader.read_string(PROGRESS_ID_BYTES),
+		"title": reader.read_string(PROGRESS_TEXT_BYTES),
+		"value": reader.read_varint(),
+	}
+	out["ok"] = reader.ok()
+	return out
+
+
+# --- VOTES -----------------------------------------------------------------
+
+const VOTE_TOKEN_BYTES := 40
+
+
+## What a client asks the vote for: `rtv`, `nominate <id>`, `vote <n>`, `extend`.
+##
+## [b]A token rather than an enum, because the thing voted for is an id and what an id
+## means is a [DotVoteSource]'s business.[/b] That is what lets one engine drive
+## dot-server's games and dot-map's maps without this file naming either.
+static func write_vote(token: String) -> PackedByteArray:
+	var writer := _writer()
+	writer.write_string(token, VOTE_TOKEN_BYTES)
+	return writer.to_bytes()
+
+
+static func read_vote(reader: DotNetReader) -> String:
+	return reader.read_string(VOTE_TOKEN_BYTES)

@@ -71,6 +71,13 @@ func _run() -> void:
 		_test_reporting()
 		await _test_stats()
 		_test_netcode()
+		_test_services()
+		await _test_moderation()
+		_test_combat()
+		_test_hunters()
+		_test_hazards()
+		await _test_progress()
+		_test_vote()
 		await _test_game_change()
 		_test_transport()
 		_test_unload()
@@ -714,6 +721,424 @@ func _test_game_change() -> void:
 ## can go wrong is that the engine build has no WebSocket peer, and that is a property of
 ## the binary rather than of the configuration.
 	_done()
+## Chat, voice and the join between them.
+func _test_services() -> void:
+	_section("chat and voice")
+
+	var module := _module()
+	var services := module.services
+
+	_check(services != null, "the services are up")
+	_check(
+		services.chat != null and services.chat.channel_ids().size() == 4,
+		"with four chat channels (%d)"
+			% (services.chat.channel_ids().size() if services.chat != null else -1)
+	)
+	_check(
+		services.chat.channel(HungryServices.CHANNEL_NEAR).scope
+			== DotChatChannel.Scope.RADIUS,
+		"one of which is a radius, because an arena is bigger than a screen"
+	)
+
+	# [b]THE join.[/b] dot-chat consults a `dot_mute_source` and dot-moderation publishes
+	# one, and neither imports the other — so the only thing that makes a gag work is that
+	# something is registered under that name.
+	_check(
+		DotRegistry.has(DotModerationManager.MUTE_SERVICE),
+		"a mute source is registered, which is the only thing that makes a gag work"
+	)
+	_check(
+		DotRegistry.has(DotModerationManager.BAN_SERVICE),
+		"and a ban source, which dot-server's admission check consults"
+	)
+
+	# [b]Proximity voice, which is where this game and the lobby part company.[/b] Hearing
+	# somebody creeping up on you is information in an arena and noise in a room.
+	_check(
+		services.voice != null
+			and services.voice.default_channel == DotVoiceRouter.Channel.PROXIMITY,
+		"voice is proximity here rather than the whole server"
+	)
+	_check(
+		services.voice.config.format_fingerprint()
+			== HungryServices.voice_config().format_fingerprint(),
+		"and its format is the one a client builds from the same file"
+	)
+
+	# dot-server's own chat is cancelled rather than run beside the router.
+	var legacy := _server.events.fire("player_chat", {
+		"userid": 1, "name": "Nobody", "text": "hello", "team_only": false,
+	})
+	_check(
+		legacy.cancelled,
+		"dot-server's own chat broadcast is cancelled, so there is exactly one path"
+	)
+	_done()
+
+
+## A gag, written and read back.
+func _test_moderation() -> void:
+	_section("moderation")
+
+	var services := _module().services
+	var subject := DotPunishmentSubject.for_uid("uid-hungry-test")
+
+	var gagged: DotResult = await services.moderation.issue(
+		DotPunishment.Kind.GAG, subject, "testing", "console", 60
+	)
+	_check(gagged.ok, "a gag is issued and stored", str(gagged.error))
+
+	# [b]Round-tripped through the store, because the two ends of a serialisation are
+	# exactly as capable of never meeting as the two ends of a wire.[/b] dot-moderation
+	# shipped a voice mute that loaded back as a WARN, which enforces nothing — and the
+	# one thing the addon exists for is a punishment surviving a reconnect.
+	var reloaded := DotModerationManager.new()
+	reloaded.store = DotPunishmentStoreFile.new(services.punishments_path)
+	reloaded.register_mute_source = false
+	reloaded.register_ban_source = false
+	add_child(reloaded)
+	reloaded.load_all()
+
+	var found := reloaded.active_of_kind(subject, DotPunishment.Kind.GAG)
+	_check(
+		found != null and found.kind == DotPunishment.Kind.GAG,
+		"and comes back off disk as a GAG rather than as a WARN"
+	)
+
+	var muted: DotResult = await services.moderation.issue(
+		DotPunishment.Kind.VOICE_MUTE, subject, "testing", "console", 60
+	)
+	_check(muted.ok, "a voice mute is issued", str(muted.error))
+	_check(
+		services.moderation.is_voice_muted_key(subject),
+		"and reads back as a voice mute rather than as a warning"
+	)
+	reloaded.queue_free()
+	_done()
+
+
+## What a throwable does, through dot-combat rather than through a constant.
+func _test_combat() -> void:
+	_section("combat")
+
+	var combat := _module().combat
+
+	_check(combat != null, "the combat rules are up")
+	_check(
+		_module().world.damage_gate.is_valid(),
+		"and the world asks them before a throwable does anything"
+	)
+
+	# Point blank against maximum range. [b]The whole reason falloff is worth having[/b]:
+	# a pepper thrown across the arena has to be worth less than one thrown in somebody's
+	# face, or throwing is a button rather than a decision.
+	var close := combat.resolve_throw(1, 2, HungryContent.ITEM_PEPPER, 10.0)
+	var far := combat.resolve_throw(1, 2, HungryContent.ITEM_PEPPER, 5000.0)
+
+	_check(close != null and not close.refused, "a point-blank hit lands")
+	_check(
+		close != null and far != null and far.amount < close.amount,
+		"and one from across the arena does less (%.0f against %.0f)"
+			% [far.amount if far != null else -1.0, close.amount if close != null else -1.0]
+	)
+	_check(
+		combat.pieces_for(close) > combat.pieces_for(far),
+		"which is fewer pieces (%d against %d)"
+			% [combat.pieces_for(close), combat.pieces_for(far)]
+	)
+
+	# [b]Self damage is off, and a monster bursting itself is the world's own eject.[/b] A
+	# scaled self hit would be a second, worse way to do a thing this game already has.
+	var own := combat.resolve_throw(1, 1, HungryContent.ITEM_PEPPER, 10.0)
+	_check(own != null and own.refused, "throwing at yourself is refused, not scaled")
+
+	# An item the combat layer has no type for passes through untouched. Refusing it would
+	# silently disable a throwable by installing an addon.
+	var lure := combat.gate(1, 2, HungryContent.ITEM_LURE, 100.0)
+	_check(
+		bool(lure.get("allowed", false)),
+		"a lure is not combat and is left alone"
+	)
+	_done()
+
+
+## The NPC monsters, and the director that decides when they arrive.
+func _test_hunters() -> void:
+	_section("hunters")
+
+	var hunters := _module().hunters
+
+	_check(hunters != null, "the hunter layer is up")
+	_check(
+		hunters.spawner != null and hunters.spawner.two_dimensional,
+		"and its spawner knows the world is 2D"
+	)
+	_check(
+		not hunters.is_enabled(),
+		"with the director off by default",
+		"a mode about eating food and a mode about being hunted are different games"
+	)
+
+	# The wire order has to be stable and has to be sorted as String — `Array.sort()` on a
+	# StringName compares interned pointers, and dot-net shipped exactly that bug.
+	var ids := HungryHunters.wire_ids()
+	var sorted := ids.duplicate()
+	sorted.sort()
+	_check(
+		Array(ids) == Array(sorted),
+		"the wire order is lexicographic, not interned-pointer order"
+	)
+	_check(
+		HungryHunters.id_at(HungryHunters.index_of(&"stalker")) == &"stalker",
+		"and an id round-trips through its index"
+	)
+
+	# [b]The plane, which is the whole of the 2D mapping.[/b] Get it wrong and a sight
+	# range of 1400 is a sight range of nothing, silently.
+	_check(
+		DotNpcInstance.from_plane(DotNpcInstance.to_plane(Vector2(3.0, -7.0)))
+			== Vector2(3.0, -7.0),
+		"a 2D point round-trips through dot-npc's plane"
+	)
+
+	_server.console.execute("hungry_hunters on")
+	_check(hunters.is_enabled(), "the console turns them on")
+
+	# The director needs somebody to be stressed about before it releases anything.
+	var world := _module().world
+	world.add_player(4242, "Bait")
+	world.spawn(4242)
+
+	for _step in range(240):
+		hunters.tick(1.0 / 60.0)
+
+	_check(
+		hunters.count() > 0,
+		"and the director releases some (%d)" % hunters.count()
+	)
+
+	var kinds: Dictionary = {}
+
+	for state in hunters.hunters().values():
+		kinds[(state as Dictionary)["kind"]] = true
+
+	_check(
+		kinds.size() >= 1,
+		"of the kinds in its population list (%s)" % str(kinds.keys())
+	)
+
+	# The candidate has to be a monster rather than a piece: a hunter chasing one fragment
+	# of a split player walks past the other seven.
+	_check(
+		hunters.position_of(&"p4242") != Vector3.INF,
+		"a player resolves as a candidate"
+	)
+	_check(
+		hunters.position_of(&"p999999") == Vector3.INF,
+		"and somebody who has gone resolves as INF rather than as the origin",
+		"zero is the middle of the arena, so a hunter whose target left would sprint "
+		+ "to the centre and mill about — which reads as a pathfinding bug"
+	)
+
+	_server.console.execute("hungry_hunters off")
+	_check(hunters.count() == 0, "turning them off clears the arena")
+
+	world.remove_player(4242)
+	_done()
+
+
+## Rocks, spikes and lures.
+func _test_hazards() -> void:
+	_section("hazards")
+
+	var hazards := _module().hazards
+
+	_check(hazards != null, "the hazard layer is up")
+
+	var placed := hazards.place(0, &"rock", Vector2(200.0, 200.0))
+	_check(placed.ok, "a rock goes down", str(placed.error))
+	_check(hazards.count() == 1, "and the arena has one thing in it")
+	_check(
+		hazards.obstacles().size() == 1,
+		"which is an obstacle both ends resolve against"
+	)
+
+	# A lure is a prop and is not an obstacle. The field is read rather than assumed:
+	# dot-props' own sweep found two documented limits that limited nothing.
+	var lure := hazards.place(0, &"lure", Vector2(-200.0, 0.0))
+	_check(lure.ok, "a lure goes down too", str(lure.error))
+	_check(
+		hazards.obstacles().size() == 1,
+		"and is NOT an obstacle (%d solid of %d placed)"
+			% [hazards.obstacles().size(), hazards.count()]
+	)
+	_check(hazards.lures().size() == 1, "but it is a lure")
+
+	# [b]Deterministic, because a round has to be reproducible.[/b] `randf()` here would
+	# make two runs of the same seed lay out two different arenas, and the whole reason
+	# `headless_round` can assert anything is that it does not.
+	hazards.clear_all()
+	var first := hazards.scatter(&"rock", 6, 4242)
+	var layout: Array = []
+
+	for entry in hazards.placements().values():
+		layout.append((entry as Dictionary)["at"])
+
+	hazards.clear_all()
+	hazards.scatter(&"rock", 6, 4242)
+	var again: Array = []
+
+	for entry in hazards.placements().values():
+		again.append((entry as Dictionary)["at"])
+
+	layout.sort_custom(func(a: Vector2, b: Vector2) -> bool: return a.x < b.x)
+	again.sort_custom(func(a: Vector2, b: Vector2) -> bool: return a.x < b.x)
+
+	_check(first == 6, "a scatter places what it was asked for (%d)" % first)
+	_check(
+		layout == again,
+		"and the same seed lays out the same arena twice"
+	)
+
+	hazards.clear_all()
+	_check(hazards.count() == 0, "a clear empties it")
+	_done()
+
+
+## Boards and achievements over the numbers this game already counts.
+func _test_progress() -> void:
+	_section("boards and achievements")
+
+	var progress := _module().progress
+
+	_check(progress != null, "the progress layer is up")
+	_check(
+		progress.boards != null and progress.boards.definitions().size() == 3,
+		"with three boards (%d)"
+			% (progress.boards.definitions().size() if progress.boards != null else -1)
+	)
+	_check(
+		progress.achievements != null and progress.achievements.catalogue.size() >= 8,
+		"and a catalogue of achievements (%d)"
+			% (progress.achievements.catalogue.size() if progress.achievements != null else -1)
+	)
+
+	# [b]Every stat an achievement watches has to be one the game reports.[/b] An
+	# achievement watching a stat nothing records never unlocks, nothing errors, and the
+	# only symptom is a player who did the thing and was not told — this family's most
+	# repeated bug wearing a rosette.
+	var schema := HungryModule.stats_schema()
+	var missing := PackedStringArray()
+
+	for stat in progress.achievements.catalogue.watched_stats():
+		if not schema.has(stat) and stat != &"hunted":
+			missing.append(String(stat))
+
+	_check(
+		missing.is_empty(),
+		"every watched stat is one the game declares",
+		"missing: %s" % str(missing)
+	)
+
+	var problems := progress.achievements.catalogue.validate()
+	_check(problems.ok, "the catalogue validates", str(problems.error))
+
+	# The link is the whole integration and it is a signal connection.
+	_check(progress.link != null, "the stats link is wired")
+
+	progress.begin("test-player")
+
+	for _bite in range(120):
+		progress.achievements.record("test-player", &"food", 1.0)
+
+	_check(
+		progress.achievements.is_unlocked("test-player", &"eat_100"),
+		"a hundred bites unlocks the first tier"
+	)
+	_check(
+		not progress.achievements.is_unlocked("test-player", &"eat_1000"),
+		"and not the second"
+	)
+
+	# A board, and the PENALTY ordering — the half of `beats()` a SCORE board never runs.
+	var monster := HungryMonster.new()
+	monster.id = 7
+	monster.display_name = "Tester"
+	monster.best_mass = 4200.0
+	monster.players_eaten = 3
+
+	progress.file_round("test-player", monster, 2)
+	progress.file_round("test-player", monster, 5)
+
+	var deaths := progress.page(&"fewest_deaths", 5)
+	_check(deaths.size() == 1, "a board holds one entry per player (%d)" % deaths.size())
+	_check(
+		deaths.size() == 1 and is_equal_approx((deaths[0] as DotLeaderboardEntry).value, 2.0),
+		"and keeps the BETTER of two rounds, which on a penalty board is the lower",
+		"%.0f" % ((deaths[0] as DotLeaderboardEntry).value if deaths.size() == 1 else -1.0)
+	)
+
+	var progressed: DotResult = await progress.achievements.flush()
+	_check(progressed.ok, "progress writes to disk", str(progressed.error))
+	_done()
+
+
+## What plays next, and who decides.
+func _test_vote() -> void:
+	_section("the vote")
+
+	var maps := _module().maps
+
+	_check(maps != null, "the map rotation is up")
+	_check(
+		maps.catalogue != null and maps.catalogue.size() == 3,
+		"with three modes in the catalogue (%d)"
+			% (maps.catalogue.size() if maps.catalogue != null else -1)
+	)
+	_check(
+		maps.director != null and maps.director.source != null
+			and maps.director.source.is_usable(),
+		"and a vote source over dot-server's own games",
+		"what a vote applies has to be the thing that actually changes the game"
+	)
+
+	# [b]`gauntlet` is off the ballot below three players, and that is what a catalogue
+	# buys over a hard-coded list.[/b] A corridor with two people in it is a chase; with
+	# nobody in it, it is not a mode worth voting for.
+	_check(
+		not maps.available(&"hungry_gauntlet"),
+		"a corridor is unavailable at this head count"
+	)
+	_check(maps.available(&"hungry_classic"), "and a square is not")
+
+	var next := maps.next_in_rotation()
+	_check(next != &"", "something is next in the rotation (%s)" % String(next))
+	_check(
+		next != StringName(_module().world.preset.id),
+		"and it is not what is playing now",
+		"a cooldown of one over three modes is what stops the same one twice running"
+	)
+
+	# Rocking the vote with one player. The threshold is a fraction of the head count and
+	# `rtv_min_players` is 2, so this is refused — which is the check: a refusal that
+	# arrives is a rule that ran, and dot-vote shipped a version where rocking the vote was
+	# refused for ever on the deployment that depends on it.
+	var rocked := maps.director.rock_the_vote(&"1")
+	_check(
+		rocked != null,
+		"rocking the vote answers rather than doing nothing",
+		str(rocked.error) if not rocked.ok else "accepted"
+	)
+
+	_check(
+		not maps.director.begin_on_apply,
+		"the director does not announce its own change",
+		"the host announces it through `game_loaded`, which also fires for an operator "
+		+ "typing `changegame` — both firing halves every cooldown"
+	)
+	_done()
+
+
 func _test_transport() -> void:
 	_section("browser clients")
 

@@ -346,6 +346,158 @@ burst is an arbitrary fragment. `HungryInterest` measures from the monster's cen
 instead, grows the rectangle linearly in *radius* (a monster wide enough to fill the screen
 cannot otherwise see anything it might eat), and scores big-and-near above small-and-far.
 
+## Chat is dot-chat's, and there is still exactly one path
+
+It used to be dot-server's, whole. **`DotChatRouter` has the rules now** — four channels,
+one of them a **radius**, a backlog for whoever just joined, a `/me`, and a gag that
+survives a reconnect — and `HungryModule` hooks `player_chat` with `hook_pre` and
+**cancels** it, so dot-server's own broadcast never happens. dot-server's join and leave
+announcements are turned off in the same place, because dot-chat makes them now.
+
+There is still one path. Two would be two sets of rules to keep in step, and the one that
+skipped the filter would be the one that leaked admin chat. `sandbox` asserts that
+**nothing at all** arrives through dot-server's own signal, and that a line sent the legacy
+way — the browser shell's chat box, which has no way to name a channel — is *forwarded*
+onto this game's wire rather than dropped.
+
+**The chat key is the player id, not the account uid.** dot-chat's `key_fn` and
+dot-moderation's `key_for_peer` are separate seams because they answer different questions:
+a punishment is against a person who will come back, so it is keyed by something that
+survives a reconnect; a chat line is attributed to somebody in this arena right now. Two
+guests behind one device id share a uid, so keying both by it puts the second person's
+words under the first person's name — game-simple-lobby found that with two clients in one
+process, and every count matched throughout.
+
+## Voice is proximity here, and that is where this game and the lobby part company
+
+An arena is bigger than a screen. Hearing somebody creeping up on you is information;
+hearing the whole server is noise. So `DotVoiceRouter.default_channel` is `PROXIMITY` and
+the range is the same number `HungryInterest` grows a view rectangle by — **being audible
+from outside your own screen is the same bug as being visible without being audible**.
+game-simple-lobby chose the opposite for a room you can see all of, and both are right for
+what they are.
+
+Everything else is the lobby's reasoning: one `unreliable` RPC on its own channel serves a
+UDP desktop client and a TCP browser one, push-to-talk closes when a screen takes the
+keyboard, and playback goes into a **buffer** when there is no audio device — which is what
+makes the receiving half checkable at all, because a wire that decoded to nothing would
+look exactly like one that worked.
+
+**The position is the mass-weighted centroid**, the same point `HungryInterest` measures
+from. A split player is several places at once and any single piece is an arbitrary
+fragment; a dead player has no position at all and can hear the room channel and nothing
+else, which is right.
+
+## Hunters: dot-npc, dot-npc-ai and the director
+
+NPC monsters that roam, eat what they can and run from what they cannot. Three addons, each
+here for the half this game would otherwise get wrong.
+
+- **dot-npc** is the catalogue, the budget, the per-kind cap and the **perception**. A
+  hunter that called "who is nearest" every tick is the classic broken NPC and both of its
+  failures are reachable in ten seconds. `DotNpcSenses` acquires at one threshold, drops at
+  a weaker one, and keeps chasing for a grace measured from the *last sighting*.
+- **dot-npc-ai** is the decision: a state machine (three states, so a tree would be three
+  leaves under a selector pretending to be a hierarchy), a wander that wanders rather than
+  re-rolling, separation so a pack at one player does not become a tower, and a **reaction
+  time** so a hunter cannot commit on the tick it first sees you. There is no difficulty
+  setting; the character is the difficulty, per hunter.
+- **dot-npc-ai-director** decides *when*. Hunters do not arrive on a timer: it builds up,
+  sustains, fades and relaxes against an estimate of what the players are experiencing —
+  which in this game is **how close the nearest hunter that could actually eat them is**,
+  reported as the "health" the director understands. A lurker a player is about to swallow
+  is not pressure, and counting it would make the director back off when the player is
+  winning.
+
+**A 2D world is dot-npc's XZ plane.** `DotNpcSpawner.spawn_2d` and `two_dimensional` were
+added for this deployment; the mapping is one line — `(x, y)` becomes `Vector3(x, 0, y)` —
+and it is what lets the senses, the steering and the director run unchanged, because every
+one of them measures a 3D distance and a 3D distance on a plane where one component never
+moves *is* the 2D one.
+
+**Hunters are not dot-net entities, deliberately.** A piece is: it is predicted, reconciled
+and interest-managed, all of which a player's own input needs. A hunter is
+server-authoritative and unpredicted — dot-props' argument about a rigid body, from the
+other side — and there are a handful, so one reliable event a few times a second is cheaper
+than an entity's declarations and adds no second id space beside the piece ids.
+
+**Off by default, and that is an operator's decision.** A mode about eating food and a mode
+about being hunted are different games; `hungry_hunters_on` is the cvar, because turning
+one into the other silently because an addon was installed is exactly what a cvar prevents.
+
+## Hazards: dot-props in an arena
+
+Rocks, spikes and lures, through `DotPropSpawner.spawn_2d`. dot-props supplies the
+catalogue, the budget, the world cap, the undo stack and the cleanup; **what a hazard does
+is this game's** — `HungryHazards.resolve` runs inside the world's tick, after movement and
+before eating, for the same ordering reason `HungryWorld.tick` already gives about merges
+and projectiles.
+
+Everything is **frozen the moment it lands**, because rigid-body simulation is not
+reproducible across machines. A frozen body is a fixed obstacle and both ends derive it
+from the same replicated position and the same catalogue radius.
+
+**The spawn interval is zero here and is not in a sandbox.** dot-props' interval exists
+because a *player* can hold a spawn key; nothing here is placed by a player. What still
+matters is the budget and the world cap.
+
+## dot-combat, for the half that is actually damage
+
+**Eating is still not here, and that has not changed.** Being devoured is a mass ratio, not
+a hit-point total, and forcing it through `DotDamageResolver` would be a worse version of
+both. What *is* damage is a **throwable**: somebody aimed something at somebody else from a
+distance, and every question that raises is one dot-combat already answers — self damage,
+falloff, a floor, and a hook.
+
+**The bridge is one function.** dot-combat's output is hit points and this game has none;
+what it has is "how far this scatters you". `HungryCombat.pieces_for` maps the first onto
+the second, so a pepper thrown across the arena scatters somebody less than one thrown at
+point blank — which turns a throwable from a hitscan into something with a range worth
+judging.
+
+**`HungryWorld.damage_gate` is unset by default and that is the whole game.** A deployment
+with no dot-combat gets the constants this file has always used; one with `HungryCombat`
+gets the rules. A world that named the combat layer would be a world that could not run
+without it, and this project's own suites run it both ways.
+
+## Boards, achievements, and the numbers they are made of
+
+**Neither addon is given a new source of truth.** `HungryModule` already declares a
+`DotStatsSchema` and records against it; `DotAchievementStatsLink` is a signal connection
+over that, and dot-leaderboard takes the readings worth ordering people by. A second count
+of how much food somebody ate would be a second number that can disagree with the first,
+and the one that is wrong is always the one nobody is looking at.
+
+`dedicated` checks that **every stat an achievement watches is one the game declares** — an
+achievement watching a stat nothing reports never unlocks, nothing errors, and the only
+symptom is a player who did the thing and was not told.
+
+Boards are **scoped by mode**: a top mass in Frenzy and a top mass in Classic are not the
+same number, and one board over both would be a board of who played Frenzy. One of the
+three is a `PENALTY` board so the "lower is better" half of `beats()` is exercised rather
+than only described.
+
+## The vote, and what dot-map is here for
+
+**The three modes are the maps.** dot-map's catalogue says what they *are* — a kind, a
+player range, a description a ballot can show — and it is built **from** the game
+descriptors rather than beside them, because the scene path and the display name are
+already declared once. What the catalogue knows that they do not is `min_players`:
+`gauntlet` is a corridor and two people in it is a chase, so it is off the ballot below
+three.
+
+**The swap stays dot-server's.** `DotMapSyncHost` announces a change, waits for every peer
+and swaps — and `change_game` already announces, waits and swaps, with a content sync this
+family spent nine bugs getting right. Running both would be two protocols doing one job,
+and the one that was wrong would be the one nobody was watching. `DotVoteGameSource` applies
+through the game manager, which is the path that already works.
+
+Three of dot-vote's own five bugs are settings this game sets **explicitly** rather than
+leaving: `extend_needs_majority` (two documented policies, one behaviour),
+`nomination_seconding` (without it every nomination count is exactly 1 and `MOST_NOMINATED`
+can never do anything), and `begin_on_apply` (both the director and the host announcing one
+play halves every cooldown).
+
 ## Three modes, and the third one is a shape
 
 `classic` and `frenzy` are the same square at two sizes: bigger and slower, smaller and
@@ -471,13 +623,13 @@ find . -name '*.gd' -not -path './.godot/*' -not -path './addons/*' | while read
 done
 
 godot --headless --path . res://examples/headless_round.tscn   # 198 — the game
-godot --headless --path . res://examples/headless_net.tscn     # 107 — the netcode
-godot --headless --path . res://examples/dedicated.tscn        #  97 — a real DotServer
-godot --headless --path . res://examples/sandbox.tscn          #  68 — two real clients
+godot --headless --path . res://examples/headless_net.tscn     # 126 — the netcode
+godot --headless --path . res://examples/dedicated.tscn        # 158 — a real DotServer
+godot --headless --path . res://examples/sandbox.tscn          #  72 — two real clients
 godot --headless --path . res://examples/content.tscn          #  45 — the cloud path
 ```
 
-516 checks. Add `-- --verbose` to `dedicated`, `sandbox` or `content` when one fails and
+599 checks. Add `-- --verbose` to `dedicated`, `sandbox` or `content` when one fails and
 the reason is in a log line rather than in the assertion.
 
 **Run `headless_round` after any change to dot-2d** and **`headless_net` after any change
@@ -519,9 +671,15 @@ the board, Enter is chat, Escape is the menu and the loadout. In the server cons
 
 - **Teams.** dot-match does teams properly and `HungryRules` would need about ten lines.
   Free-for-all is what the genre is.
-- **dot-combat.** Health and damage are the wrong model here: being eaten is a mass ratio,
-  not a hit point total, and forcing it through `DotDamageResolver` would be a worse
-  version of both. game-arena is where that addon runs.
+- **dot-combat over eating.** Being devoured is a mass ratio, not a hit-point total, and
+  forcing *that* through `DotDamageResolver` would be a worse version of both. Throwables
+  do go through it — see above — which is the half that genuinely is damage.
+- **dot-map's sync protocol.** The catalogue and the rotation are used; `DotMapSyncHost` is
+  not, because dot-server's game change already announces, waits and swaps. Two protocols
+  doing one job is the failure this whole file is about.
+- **A hunter a client predicts.** They are server-authoritative and unpredicted, for
+  dot-props' reason: a corrected NPC reads worse than a slightly late one, and there are
+  never enough of them for the traffic to matter.
 - **A game delivered through dot-cloud.** The *cosmetics* are, end to end, including the
   refusals. The game itself ships in the build, so `changegame` never exercises
   dot-server's content sync and no client has ever downloaded a map.
@@ -537,5 +695,7 @@ the board, Enter is chat, Escape is the menu and the loadout. In the server cons
 - **Persistence.** Mass is per round and loadouts are per session — the store is memory,
   because a loadout that outlives a session is a profile and a profile is dot-user's. The
   profile is already resolved; nothing writes to it yet.
-- **A server browser.** The launcher takes one address. Picking from a list is
-  website-city's, and the reporting side of it is wired above.
+- **A master server.** `HungryBrowser` is a real dot-browser list — DQP, DQP over a
+  WebSocket, A2S, favourites, history and a mode filter — and the half still missing is in
+  the middle: a tracker has to be *told* an address, and nothing announces one.
+  `DotBrowserSourceBackbone` reads a listing website-city does not publish yet.

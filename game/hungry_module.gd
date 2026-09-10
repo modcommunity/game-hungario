@@ -46,6 +46,26 @@ var bridge: HungryNetBridge = null
 ## this is a manager rather than a dictionary.
 var loadouts: DotLoadoutManager = null
 
+## Chat, moderation and voice. Built here rather than in the world, because they are about
+## the people connected rather than about the arena — a game change frees the world and
+## these have to survive it, exactly as the netcode manager does.
+var services: HungryServices = null
+
+## NPC monsters, and the director that decides when they arrive.
+var hunters: HungryHunters = null
+
+## Rocks, spikes and lures.
+var hazards: HungryHazards = null
+
+## What a throwable does to somebody, through dot-combat's rules.
+var combat: HungryCombat = null
+
+## Boards and achievements over the numbers this game already counts.
+var progress: HungryProgress = null
+
+## The three modes as maps, the rotation, and the vote over them.
+var maps: HungryMaps = null
+
 ## Reports this server to its site listing, when an operator has configured one.
 ##
 ## Null on a server with no integration token, which is every LAN game and every test.
@@ -75,6 +95,11 @@ var _tick: int = 0
 var _cv_bots: DotConVar = null
 var _cv_pack: DotConVar = null
 var _cv_auth_config: DotConVar = null
+var _cv_hunters: DotConVar = null
+var _cv_hazards: DotConVar = null
+
+## Who last said something. What `hungry_status` reports, off the accepted line.
+var _last_spoke: String = ""
 
 
 func _module_name() -> String:
@@ -119,11 +144,29 @@ func _module_load() -> DotResult:
 	hook_post("client_spawn", _on_client_spawn)
 	server.client_disconnected.connect(_on_client_disconnected)
 
+	# [b]dot-server's own chat is cancelled here rather than listened to.[/b]
+	# [DotChatRouter] has the rules now — channels, a radius, a backlog, a `/me`, and a
+	# gag that survives a reconnect — and the one thing that must not happen is both
+	# running: two sets of rules to keep in step, and the one that skipped the filter
+	# would be the one that leaked admin chat. A pre-hook is what can cancel;
+	# [method DotChatManager.handle_message] broadcasts the moment the event returns.
+	hook_pre("player_chat", _on_player_chat)
+
+	# dot-chat makes the join and leave notices now, so dot-server's would be a second
+	# one on a second path.
+	if server.chat != null:
+		server.chat.announce_joins = false
+
 	_register_games()
 	_register_console()
 
 	_build_reporting()
 	_build_stats()
+
+	var extras := _build_extras()
+
+	if not extras.ok:
+		return extras
 
 	if Engine.physics_ticks_per_second != world.tick_rate:
 		# Not corrected here: `sv_tickrate` is the operator's and this module is a guest
@@ -135,6 +178,9 @@ func _module_load() -> DotResult:
 		})
 
 	world.start(0)
+
+	if maps != null:
+		maps.note_playing(StringName(world.preset.id))
 
 	log_info("hungry loaded", {
 		"preset": String(world.preset.id),
@@ -200,6 +246,30 @@ func _module_game_changed(content_key: String) -> void:
 
 	world = next
 
+	# Everything that holds a world holds the new one. A layer left pointing at a freed
+	# scene is a use-after-free on the next tick, and the ones that hold *placements*
+	# rather than nodes have to be told to forget them — the arena is a different shape
+	# now and a rock from the last mode would be a rock in the wall.
+	if hunters != null:
+		hunters.world = world
+		hunters.spawner.clear_all()
+
+	if hazards != null:
+		hazards.world = world
+		hazards.clear_all()
+
+	if services != null:
+		services.world = world
+
+	if combat != null:
+		world.damage_gate = combat.gate
+
+	if progress != null:
+		progress.mode_id = StringName(next.preset.id)
+
+	if maps != null:
+		maps.note_playing(StringName(next.preset.id))
+
 	var rebound := bridge.rebind(world)
 
 	if not rebound.ok:
@@ -215,6 +285,146 @@ func _module_game_changed(content_key: String) -> void:
 	log_info("rebound onto a new world", {
 		"preset": String(world.preset.id), "content_key": content_key
 	})
+
+
+## Everything that is not the netcode, the loadouts or the stats.
+##
+## [b]Built in this order because each one needs the last.[/b] The services register a
+## mute source that the chat router warns about the absence of; the progress layer takes
+## its readings from the stats tracker; the hunters and the hazards both act on the world
+## and are announced through the bridge. None of it suspends, because
+## [method DotModuleHost.load_module] does not await `_module_load` and a module whose load
+## suspends returns null to it.
+func _build_extras() -> DotResult:
+	var serviced := _build_services()
+
+	if not serviced.ok:
+		return serviced
+
+	var fought := _build_combat()
+
+	if not fought.ok:
+		return fought
+
+	var hunted := _build_hunters()
+
+	if not hunted.ok:
+		return hunted
+
+	var earned := _build_progress()
+
+	if not earned.ok:
+		return earned
+
+	return _build_maps()
+
+
+func _build_services() -> DotResult:
+	services = HungryServices.new()
+	services.name = "Services"
+	services.bridge = bridge
+	services.world = world
+	services.server = server
+	services.punishments_path = "user://hungry_punishments.json"
+	add_child(services)
+
+	var ready := services.setup()
+
+	if not ready.ok:
+		return ready.wrap("The services could not be set up")
+
+	bridge.say_requested.connect(_on_say_requested)
+	bridge.voice_requested.connect(_on_voice_requested)
+	bridge.vote_requested.connect(_on_vote_requested)
+	services.command_entered.connect(_on_chat_command)
+
+	# The server's own view of a bubble, off the one signal that fires after a line has
+	# been accepted — not off the request, or a line refused for being a duplicate would
+	# still be attributed to somebody.
+	services.chat.message_accepted.connect(_on_chat_accepted)
+
+	return DotResult.success(null)
+
+
+func _build_combat() -> DotResult:
+	combat = HungryCombat.new()
+	combat.name = "Combat"
+	add_child(combat)
+
+	var ready := combat.setup()
+
+	if not ready.ok:
+		return ready.wrap("The combat rules could not be set up")
+
+	# The world asks and dot-combat answers. Unset — which is what every deployment
+	# without this addon has — leaves the constants this game has always used.
+	world.damage_gate = combat.gate
+
+	return DotResult.success(null)
+
+
+func _build_hunters() -> DotResult:
+	hunters = HungryHunters.new()
+	hunters.name = "Hunters"
+	add_child(hunters)
+
+	var ready := hunters.setup(true, world)
+
+	if not ready.ok:
+		return ready.wrap("The hunters could not be set up")
+
+	hazards = HungryHazards.new()
+	hazards.name = "Hazards"
+	add_child(hazards)
+
+	var placed := hazards.setup(true, world)
+
+	if not placed.ok:
+		return placed.wrap("The hazards could not be set up")
+
+	hunters.hunter_changed.connect(_on_hunter_changed)
+	hunters.piece_hunted.connect(_on_piece_hunted)
+	hazards.placed.connect(_on_hazard_placed)
+	hazards.cleared.connect(_on_hazard_cleared)
+	hazards.struck.connect(_on_hazard_struck)
+
+	return DotResult.success(null)
+
+
+func _build_progress() -> DotResult:
+	progress = HungryProgress.new()
+	progress.name = "Progress"
+	progress.stats = stats
+	progress.backbone = backbone
+	progress.mode_id = StringName(world.preset.id)
+	add_child(progress)
+
+	var ready := progress.setup()
+
+	if not ready.ok:
+		return ready.wrap("Progress could not be set up")
+
+	progress.earned.connect(_on_earned)
+
+	return DotResult.success(null)
+
+
+func _build_maps() -> DotResult:
+	maps = HungryMaps.new()
+	maps.name = "Maps"
+	maps.player_count_fn = func() -> int: return world.player_ids().size()
+	maps.is_admin_fn = _voter_is_admin
+	add_child(maps)
+
+	var ready := maps.setup(server.games)
+
+	if not ready.ok:
+		return ready.wrap("The map rotation could not be set up")
+
+	maps.change_due.connect(_on_change_due)
+	maps.announced.connect(_on_vote_announced)
+
+	return DotResult.success(null)
 
 
 # --- Netcode ---------------------------------------------------------------
@@ -583,6 +793,20 @@ func _physics_process(_delta: float) -> void:
 	_drive_bots()
 	bridge.server_tick(_tick)
 
+	# [b]After the world's own tick, and this is the ordering that matters.[/b] The hunters
+	# read where everybody is and the hazards push pieces out of rocks, and both have to
+	# happen on positions the movement has just produced — a list built before the tick is
+	# a list of where everybody WAS, which is the one-tick lag this family has now
+	# documented three times.
+	if hunters != null and hunters.is_enabled():
+		hunters.tick(1.0 / float(world.tick_rate))
+
+	if hazards != null:
+		hazards.resolve()
+
+	if maps != null:
+		maps.advance(1.0 / float(world.tick_rate))
+
 
 # --- Joining ---------------------------------------------------------------
 
@@ -618,14 +842,276 @@ func _on_client_spawn(event: DotEvent) -> void:
 	_apply_stored_loadout(session.userid)
 	_begin_stats(session)
 
+	# Voice and chat learn about them before anything is sent, so a frame or a line that
+	# lands in the same flush as the admission has somewhere to go.
+	if services != null:
+		services.add_peer(session.peer_id)
+
+	if progress != null:
+		progress.begin(str(_stat_keys.get(session.userid, "")))
+
+	_welcome(session)
+
+
+## What somebody is told once they are in: the backlog, and what is already in the arena.
+##
+## [b]After the admission, never before it.[/b] Nothing may be sent to a peer before it has
+## said it can receive — dot-server's signon finishes and *then* the client builds its
+## scene, and everything sent in between lands on a node that does not exist and is lost,
+## one "Node not found" per call.
+func _welcome(session: DotClientSession) -> void:
+	if not bridge.peer_is_ready(session.peer_id):
+		return
+
+	if services != null:
+		# The backlog: what was said before they walked in. dot-chat computes it per peer,
+		# because a channel with `backlog = 0` — the proximity one — must not replay a
+		# line somebody said quietly in a corner to a stranger who was not there.
+		for line in services.chat.backlog_for(session.peer_id):
+			bridge.send_chat(session.peer_id, line)
+
+		services.chat.join_notice(session.peer_id, HungryServices.CHANNEL_ALL)
+
+	# The hunters and the hazards already in the arena. A client that joined mid-wave
+	# would otherwise be told about a hunter only when it next moved, and would walk
+	# through a rock in the meantime — both ends resolve the same list.
+	if hunters != null:
+		for row in hunters.wire_rows():
+			bridge.send_hunter(
+				session.peer_id, row[0], row[1], row[2], row[3], row[4]
+			)
+
+	if hazards != null:
+		for row in hazards.wire_rows():
+			bridge.send_hazard(session.peer_id, row[0], row[1], row[2], true)
+
 
 func _on_client_disconnected(session: DotClientSession, _reason: String) -> void:
 	if not _joined.has(session.userid):
 		return
 
+	# [b]Off the broadcast set first.[/b] Everything below announces something about this
+	# person to everybody ELSE, and their socket has already gone — the "Attempt to call
+	# RPC with unknown peer ID" that ends up in the log of every single disconnect, which
+	# is where somebody looks when something else is wrong.
+	bridge.mark_not_ready(session.peer_id)
+
+	if services != null:
+		services.chat.leave_notice(session.peer_id, HungryServices.CHANNEL_ALL)
+		services.remove_peer(session.peer_id)
+
+	if maps != null and maps.director != null:
+		# The vote forgets them, or a rock-the-vote threshold counts a ballot from
+		# somebody who has left — which is how a server ends up unable to change at all.
+		maps.director.forget_voter(StringName(str(session.userid)))
+
+	if progress != null:
+		progress.end(str(_stat_keys.get(_player_of_session(session), "")))
+
 	bridge.remove_peer(session.peer_id)
 	_joined.erase(session.userid)
 	_end_stats(session)
+
+
+## The world player id a session is in the arena under, or zero.
+func _player_of_session(session: DotClientSession) -> int:
+	return bridge.player_for_peer(session.peer_id) if bridge != null else 0
+
+
+# --- Chat, voice and votes -------------------------------------------------
+
+## Somebody said something through dot-server's own chat path.
+##
+## Taken and cancelled, not watched: this game's rules are [DotChatRouter]'s now, and
+## cancelling is what makes there be exactly one path. The line still reaches every player,
+## through a router that has already sanitised it, checked the gag and worked out who can
+## hear it.
+func _on_player_chat(event: DotEvent) -> void:
+	event.cancel("routed by the game's chat", _module_name())
+
+	var session := event.get_session()
+
+	if session == null or services == null or services.chat == null:
+		return
+
+	# A browser shell's own chat box has no way to name a channel, so the legacy path
+	# lands on the room channel — which is the one they would have picked.
+	_on_say_requested(
+		session.peer_id, HungryServices.CHANNEL_ALL, event.get_string("text")
+	)
+
+
+func _on_say_requested(peer_id: int, channel_id: StringName, text: String) -> void:
+	var said := services.chat.submit(peer_id, channel_id, text)
+
+	if not said.ok and said.error != null:
+		# Back to the sender and nowhere else. dot-chat is deliberate that a rate-limited
+		# or gagged player must not be able to measure the difference from outside, and a
+		# refusal broadcast to the room is exactly that measurement.
+		services.chat.notice(peer_id, said.error.message, channel_id)
+
+
+## A voice frame. Relayed, never inspected — the router stamps the speaker from the
+## transport's own sender id, and without that any client can put words in any other
+## player's mouth.
+func _on_voice_requested(peer_id: int, payload: PackedByteArray) -> void:
+	services.voice.relay(peer_id, payload)
+
+
+func _on_chat_accepted(message: DotChatMessage, _recipients: PackedInt32Array) -> void:
+	# Nothing to draw over a head here — a monster is not a nameplate — but the server's
+	# own view of who last spoke is what `hungry_status` reports from, and it is taken off
+	# the accepted line rather than off the request so a refused one is not counted.
+	if message.sender_peer > 0:
+		_last_spoke = message.sender_name
+
+
+## An unclaimed `!command` from chat.
+##
+## Routed into dot-server's own console with the player's permissions rather than given a
+## second command table here: dot-server already decides what a session may run, logs it to
+## the audit log and answers it, and a game that reimplemented that would be a game whose
+## chat commands were not audited.
+func _on_chat_command(peer_id: int, command: String, args: PackedStringArray) -> void:
+	var session := server.session_of(peer_id)
+
+	if session == null:
+		return
+
+	if server.console.find_command(command) == null:
+		DotLog.debug(CHANNEL, "an unknown chat command was ignored", {
+			"peer": peer_id, "command": command,
+		})
+		return
+
+	var ctx := session.make_context(
+		command,
+		args,
+		DotCmdContext.Source.CHAT,
+		func(line: String) -> void:
+			services.chat.notice(peer_id, line, HungryServices.CHANNEL_ALL)
+	)
+
+	var line := command
+
+	for arg in args:
+		line += " " + arg
+
+	server.console.execute(line, ctx)
+
+
+## `rtv`, `nominate <id>`, `vote <n>`, `extend` — from this game's own wire.
+##
+## [b]A token, resolved here rather than an enum on the wire.[/b] What can be voted for is
+## a [DotVoteSource]'s business, which is what lets one engine drive dot-server's games and
+## dot-map's maps without this file naming either.
+func _on_vote_requested(peer_id: int, token: String) -> void:
+	if maps == null or maps.director == null:
+		return
+
+	var voter := StringName(str(bridge.player_for_peer(peer_id)))
+	var parts := token.strip_edges().split(" ", false)
+
+	if parts.is_empty():
+		return
+
+	var result: DotResult = null
+
+	match parts[0].to_lower():
+		"rtv":
+			result = maps.director.rock_the_vote(voter)
+		"nominate":
+			if parts.size() > 1:
+				result = maps.director.nominate(voter, StringName(parts[1]))
+		"vote":
+			if parts.size() > 1:
+				result = maps.director.cast_one(voter, StringName(parts[1]))
+		"extend":
+			result = maps.director.extend()
+
+	if result != null and not result.ok and services != null:
+		services.chat.notice(
+			peer_id, result.error.message, HungryServices.CHANNEL_ALL
+		)
+
+
+func _voter_is_admin(voter: StringName) -> bool:
+	var player_id := String(voter).to_int()
+	var peer_id := bridge.peer_for_player(player_id)
+	var session := server.session_of(peer_id) if peer_id > 0 else null
+	return session != null and session.is_admin()
+
+
+func _on_vote_announced(line: String) -> void:
+	if services != null and services.chat != null:
+		services.chat.announce(line, HungryServices.CHANNEL_ALL)
+
+
+## The vote picked something. dot-server changes the game; nothing here does.
+func _on_change_due(game_id: StringName) -> void:
+	if not maps.available(game_id):
+		log_warn("the vote picked a mode this head count cannot play", {
+			"game": String(game_id)
+		})
+		return
+
+	server.games.change_game(game_id, "vote")
+
+
+# --- Hunters, hazards and progress -----------------------------------------
+
+func _on_hunter_changed(hunter_id: int) -> void:
+	var state := hunters.state_of(hunter_id)
+
+	if state.is_empty():
+		# Gone. Announced as not-alive so a client drops it, rather than simply stopping
+		# being mentioned — which would leave it drawn for ever.
+		bridge.broadcast_hunter(hunter_id, 0, Vector2.ZERO, 0.0, false)
+		return
+
+	bridge.broadcast_hunter(
+		hunter_id,
+		HungryHunters.index_of(state["kind"]),
+		state["at"],
+		float(state["radius"]),
+		bool(state["alive"])
+	)
+
+
+## A hunter ate somebody's piece. Counted, so the secret achievement can be earned.
+func _on_piece_hunted(player_id: int, _mass: float) -> void:
+	var key := _stat_key(player_id)
+
+	if key != &"":
+		stats.record(key, &"hunted", 1.0)
+
+
+func _on_hazard_placed(place_id: int, def: DotPropDef, at: Vector2) -> void:
+	bridge.broadcast_hazard(place_id, HungryHazards.index_of(def.id), at, true)
+
+
+func _on_hazard_cleared(place_id: int) -> void:
+	bridge.broadcast_hazard(place_id, 0, Vector2.ZERO, false)
+
+
+## A spike. What "burst" means is the world's; this is where it is asked for.
+func _on_hazard_struck(player_id: int, _piece_id: int, effect: StringName) -> void:
+	if effect == &"burst":
+		world.burst(world.monster_for(player_id), 0)
+
+
+func _on_earned(player_key: String, id: StringName, title: String, points: int) -> void:
+	# The player id the key belongs to, so a client can colour the line. Linear over at
+	# most a few dozen players, a few times a session.
+	for player_id in _stat_keys.keys():
+		if str(_stat_keys[player_id]) != player_key:
+			continue
+
+		bridge.broadcast_progress(int(player_id), id, title, points)
+		return
+
+
+# --- The avatar ------------------------------------------------------------
 
 
 ## The avatar dot-platform resolved for this session, if there is a dot-platform.
@@ -816,7 +1302,53 @@ func _register_console() -> void:
 		DotAdminFlags.CHEATS
 	)
 
+	add_command(
+		"hungry_services", _cmd_services,
+		"Show chat, voice and moderation", DotAdminFlags.GENERIC
+	)
+	add_command(
+		"hungry_hunters", _cmd_hunters,
+		"hungry_hunters [on|off|clear] — the NPC monsters", DotAdminFlags.GENERIC
+	)
+	add_command(
+		"hungry_hazards", _cmd_hazards,
+		"hungry_hazards [scatter <n>|clear] — rocks, spikes and lures",
+		DotAdminFlags.CHANGEMAP
+	)
+	add_command(
+		"hungry_boards", _cmd_boards,
+		"hungry_boards [board] — the persistent leaderboards", ""
+	)
+	add_command(
+		"hungry_vote", _cmd_vote,
+		"hungry_vote [open|status|next] — what plays next", DotAdminFlags.CHANGEMAP
+	)
+	# MUTE rather than BAN: quieting somebody and removing them are different powers, and
+	# dot-server's own flags are what distinguish them.
+	add_command(
+		"hungry_gag", _cmd_gag,
+		"hungry_gag <who> <seconds> [reason]", DotAdminFlags.MUTE
+	)
+	add_command(
+		"hungry_mute", _cmd_mute,
+		"hungry_mute <who> <seconds> [reason]", DotAdminFlags.MUTE
+	)
+
 	_cv_bots = add_cvar("hungry_bots", "0", "Bots to keep in the world")
+
+	# [b]Hunters are off by default, and that is an operator's decision rather than an
+	# addon's.[/b] A mode about eating food and a mode about being hunted are different
+	# games, and turning one into the other silently because an addon was installed is
+	# exactly what a cvar exists to prevent.
+	_cv_hunters = add_cvar("hungry_hunters_on", "0", "Release NPC hunters into the arena")
+	_cv_hunters.changed.connect(func(_old: String, value: String) -> void:
+		if hunters != null:
+			hunters.set_enabled(value != "0")
+	)
+
+	_cv_hazards = add_cvar(
+		"hungry_hazards_count", "0", "Rocks scattered into the arena at load"
+	)
 
 	# Where this server's rider cosmetics live. Empty means "whatever the client shipped
 	# with", which is every deployment that has not published a pack — and a client with
@@ -838,6 +1370,145 @@ func _register_console() -> void:
 func _cmd_status(ctx: DotCmdContext) -> void:
 	ctx.reply_lines(world.describe_lines())
 	ctx.reply_lines(bridge.describe_lines())
+
+	if _last_spoke != "":
+		ctx.reply("last spoke   %s" % _last_spoke)
+
+	if hunters != null:
+		ctx.reply_lines(hunters.describe_lines())
+
+	if hazards != null:
+		ctx.reply_lines(hazards.describe_lines())
+
+	if maps != null:
+		ctx.reply_lines(maps.describe_lines())
+
+
+func _cmd_services(ctx: DotCmdContext) -> void:
+	ctx.reply_lines(services.describe_lines())
+
+	if combat != null:
+		ctx.reply_lines(combat.describe_lines())
+
+
+func _cmd_hunters(ctx: DotCmdContext) -> void:
+	match ctx.arg(0):
+		"on":
+			hunters.set_enabled(true)
+			ctx.reply("Hunters are on.")
+		"off":
+			hunters.set_enabled(false)
+			ctx.reply("Hunters are off, and the arena is cleared of them.")
+		"clear":
+			var gone := hunters.spawner.clear_all()
+			ctx.reply("Cleared %d." % gone)
+		_:
+			ctx.reply_lines(hunters.describe_lines())
+
+
+func _cmd_hazards(ctx: DotCmdContext) -> void:
+	match ctx.arg(0):
+		"scatter":
+			var count := maxi(1, ctx.arg_int(1, 8))
+			# Seeded from the world rather than from a clock, so `hungry_hazards scatter`
+			# twice on one world lays out the same arena twice. A server an operator can
+			# reproduce is worth more than one that surprises them.
+			var made := hazards.scatter(&"rock", count, world.field.seed_value())
+			ctx.reply("Scattered %d rocks." % made)
+		"clear":
+			ctx.reply("Cleared %d." % hazards.clear_all())
+		_:
+			ctx.reply_lines(hazards.describe_lines())
+
+
+func _cmd_boards(ctx: DotCmdContext) -> void:
+	var board_id := StringName(ctx.arg(0, "top_mass"))
+	var rows := progress.page(board_id, 10)
+
+	if rows.is_empty():
+		ctx.reply("Nothing on '%s' yet." % String(board_id))
+		return
+
+	var rank := 1
+
+	for row in rows:
+		var entry: DotLeaderboardEntry = row
+		ctx.reply("%2d. %-24s %s" % [rank, entry.player_name, entry.value])
+		rank += 1
+
+
+func _cmd_vote(ctx: DotCmdContext) -> void:
+	match ctx.arg(0):
+		"open":
+			var opened := maps.director.open_vote()
+			ctx.reply_error(opened) if not opened.ok else ctx.reply("Vote opened.")
+		"next":
+			ctx.reply("Next in rotation: %s" % String(maps.next_in_rotation()))
+		_:
+			ctx.reply_lines(maps.describe_lines())
+
+
+func _cmd_gag(ctx: DotCmdContext) -> void:
+	await _punish(ctx, DotPunishment.Kind.GAG, "gagged")
+
+
+func _cmd_mute(ctx: DotCmdContext) -> void:
+	await _punish(ctx, DotPunishment.Kind.VOICE_MUTE, "muted")
+
+
+## The shared half of gag and mute.
+##
+## One function because the only difference is a kind: dot-moderation already models both
+## as one record with an expiry, a scope and a revocation, and writing them separately
+## would be two chances to forget the duration parsing or the immunity.
+func _punish(ctx: DotCmdContext, kind: DotPunishment.Kind, verb: String) -> void:
+	if ctx.args.size() < 2:
+		ctx.reply("Usage: %s <who> <seconds, 0 for permanent> [reason]" % ctx.command)
+		return
+
+	var targets := server.find_sessions(ctx.args[0], ctx.session)
+
+	if targets.is_empty():
+		ctx.reply("Nobody matches '%s'." % ctx.args[0])
+		return
+
+	if targets.size() > 1:
+		# Refused rather than applied to all of them: `@me` and a name prefix both match
+		# more than one person, and a mute applied to four people by accident is a thing
+		# an operator finds out about from the four people.
+		ctx.reply("'%s' matches %d people. Be more specific." % [
+			ctx.args[0], targets.size()
+		])
+		return
+
+	var session := targets[0]
+	var seconds := maxi(0, ctx.arg_int(1))
+	var reason := ctx.rest(2) if ctx.args.size() > 2 else "No reason given."
+
+	var issued: DotResult = await services.moderation.issue(
+		kind,
+		DotPunishmentSubject.for_uid(session.uid()),
+		reason,
+		ctx.caller_label(),
+		seconds,
+		ctx.immunity
+	)
+
+	if not issued.ok:
+		ctx.reply("Refused: %s" % issued.error.message)
+		return
+
+	ctx.reply("%s %s: %s" % [
+		session.display_name, verb, DotPunishment.format_duration(seconds)
+	])
+
+	# Told to the person it happened to, on the channel they are reading. A mute nobody is
+	# told about is a microphone that has stopped working, which is what they report.
+	services.chat.notice(
+		session.peer_id,
+		(issued.value as DotPunishment).player_message(),
+		HungryServices.CHANNEL_ALL
+	)
 
 
 func _cmd_top(ctx: DotCmdContext) -> void:

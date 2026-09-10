@@ -43,6 +43,36 @@ signal roster_changed(player_id: int)
 ## [enum HungryEvents.Kind].
 signal cue(kind: int, data: Dictionary)
 
+## Somebody pressed Enter. Server side, and the only thing this bridge does with chat.
+##
+## [b]The bridge carries chat and decides nothing about it.[/b] Who may say what, on which
+## channel, how often and who hears it are [DotChatRouter]'s, and [HungryModule] joins the
+## two. A netcode that also held the chat rules would be a netcode somebody had to change
+## to add a channel.
+signal say_requested(peer_id: int, channel_id: StringName, text: String)
+
+## Somebody typed a vote command. Server side; the token is resolved by a [DotVoteSource].
+signal vote_requested(peer_id: int, token: String)
+
+## A voice frame arrived. Server side; the payload has not been parsed and must not be
+## trusted — [method DotVoiceRouter.relay] is what stamps the speaker.
+signal voice_requested(peer_id: int, payload: PackedByteArray)
+
+## A chat line landed. Client side, for [DotChatClient].
+signal chat_received(wire: Dictionary)
+
+## A voice frame landed. Client side, for [DotVoiceManager].
+signal voice_arrived(payload: PackedByteArray)
+
+## A hunter's state landed. Client side; see [HungryHunters].
+signal hunter_received(state: Dictionary)
+
+## A hazard appeared or is gone. Client side.
+signal hazard_received(state: Dictionary)
+
+## Somebody earned something. Client side.
+signal progress_received(state: Dictionary)
+
 var world: HungryWorld = null
 ## Where the clock learns how long the link is, in milliseconds. dot-net never
 ## touches a transport and cannot measure it; dot-server's heartbeat already does
@@ -600,6 +630,38 @@ func player_for_peer(peer_id: int) -> int:
 	return int(_player_of_peer.get(peer_id, 0))
 
 
+## Everybody who has said they can receive. Server side.
+##
+## [b]The set chat and voice are addressed against, and deliberately not
+## [method DotServer.sessions].[/b] A session exists from the moment a socket connects; a
+## ready peer is one that has built its scene and can be sent to. Routing a chat line to
+## the first is a "Node not found" per recipient and a line nobody got.
+func ready_peers() -> PackedInt32Array:
+	var out := PackedInt32Array()
+
+	for peer_id in _ready_peers.keys():
+		out.append(int(peer_id))
+
+	return out
+
+
+## Whether a peer has already said it can receive. Server side.
+##
+## [b]What everything sent on a join has to check.[/b] dot-server's signon finishes and
+## *then* the client builds its scene; anything sent in between lands on a node that does
+## not exist and is lost, one "Node not found" per call.
+func peer_is_ready(peer_id: int) -> bool:
+	return _ready_peers.has(peer_id)
+
+
+## Takes a peer off the broadcast set without touching anything else. Server side.
+##
+## What a disconnect does first: everything a leave then triggers announces something
+## about that person to everybody else, and their socket has already gone.
+func mark_not_ready(peer_id: int) -> void:
+	_ready_peers.erase(peer_id)
+
+
 func peer_for_player(player_id: int) -> int:
 	return int(_peer_of_player.get(player_id, 0))
 
@@ -833,6 +895,33 @@ func receive_input(peer_id: int, payload: PackedByteArray) -> DotResult:
 	packet.read(DotNetReader.new(payload.slice(ACK_BYTES)))
 
 	return net.input_buffer_for(peer_id).push(packet)
+
+
+## A voice frame off [method HungryNetLink.send_voice], in whichever direction this is.
+##
+## [b]Not a [HungryEvent].[/b] Voice is fifty packets a second and every HungryEvent is
+## reliable, so a talk spurt would put a hundred retransmittable messages in front of a
+## spawn. It also does not go through [DotNetManager]: the registry seals a message set and
+## hashes it, and adding a fifty-hertz opaque blob to that buys nothing — the packet has
+## its own header, its own sequence and its own validation in [DotVoicePacket].
+func receive_voice(peer_id: int, payload: PackedByteArray) -> DotResult:
+	if payload.is_empty():
+		return DotResult.fail(DotError.CODE_INVALID, "An empty voice frame.")
+
+	if net != null and net.is_server:
+		if peer_id <= 0 or not _player_of_peer.has(peer_id):
+			# A peer with nobody in the arena. Refused rather than relayed: the router
+			# stamps the speaker from this id, so relaying one that belongs to nobody
+			# puts a voice in the game with no name on it.
+			return DotResult.fail(
+				DotError.CODE_FORBIDDEN, "That peer has nobody in the game."
+			)
+
+		voice_requested.emit(peer_id, payload)
+		return DotResult.success(null)
+
+	voice_arrived.emit(payload)
+	return DotResult.success(null)
 
 
 func receive_event(payload: PackedByteArray) -> DotResult:
@@ -1083,6 +1172,30 @@ func _on_event(message: DotNetMessage) -> void:
 			world.remove_player(player_id)
 			roster_changed.emit(player_id)
 
+		HungryEvents.Kind.CHAT:
+			var wire := HungryEvents.read_chat(reader)
+
+			if bool(wire["ok"]):
+				chat_received.emit(wire)
+
+		HungryEvents.Kind.HUNTER:
+			var hunter := HungryEvents.read_hunter(reader)
+
+			if bool(hunter["ok"]):
+				hunter_received.emit(hunter)
+
+		HungryEvents.Kind.HAZARD:
+			var hazard := HungryEvents.read_hazard(reader)
+
+			if bool(hazard["ok"]):
+				hazard_received.emit(hazard)
+
+		HungryEvents.Kind.PROGRESS:
+			var earned := HungryEvents.read_progress(reader)
+
+			if bool(earned["ok"]):
+				progress_received.emit(earned)
+
 		HungryEvents.Kind.SPAWN:
 			_apply_spawn(reader)
 
@@ -1314,6 +1427,88 @@ func publish_loadout(loadout: DotLoadout) -> void:
 	)
 
 
+## One chat line to one peer. Server side, and what [member DotChatRouter.send_fn] points
+## at.
+##
+## [b]Peer by peer, never a broadcast, and that is the router's decision rather than this
+## one's.[/b] It has already worked out exactly who may hear a line — everybody, a radius,
+## two people in a whisper — and handing the result to a broadcast would throw that away in
+## the one place it matters most.
+func send_chat(peer_id: int, wire: Dictionary) -> void:
+	_tell(peer_id, HungryEvents.Kind.CHAT, HungryEvents.write_chat(wire))
+
+
+## A hunter's state, to everybody who can receive one. Server side.
+func broadcast_hunter(
+	hunter_id: int, kind_index: int, at: Vector2, radius: float, alive: bool
+) -> void:
+	_broadcast(
+		HungryEvents.Kind.HUNTER,
+		HungryEvents.write_hunter(hunter_id, kind_index, at, radius, alive)
+	)
+
+
+## A hunter's state, to one peer. Server side, for somebody who has just joined.
+func send_hunter(
+	peer_id: int, hunter_id: int, kind_index: int, at: Vector2, radius: float, alive: bool
+) -> void:
+	_tell(
+		peer_id,
+		HungryEvents.Kind.HUNTER,
+		HungryEvents.write_hunter(hunter_id, kind_index, at, radius, alive)
+	)
+
+
+func broadcast_hazard(
+	place_id: int, kind_index: int, at: Vector2, present: bool
+) -> void:
+	_broadcast(
+		HungryEvents.Kind.HAZARD,
+		HungryEvents.write_hazard(place_id, kind_index, at, present)
+	)
+
+
+func send_hazard(
+	peer_id: int, place_id: int, kind_index: int, at: Vector2, present: bool
+) -> void:
+	_tell(
+		peer_id,
+		HungryEvents.Kind.HAZARD,
+		HungryEvents.write_hazard(place_id, kind_index, at, present)
+	)
+
+
+## Something somebody earned, to everybody. Server side.
+func broadcast_progress(
+	player_id: int, id: StringName, title: String, value: int
+) -> void:
+	_broadcast(
+		HungryEvents.Kind.PROGRESS,
+		HungryEvents.write_progress(player_id, id, title, value)
+	)
+
+
+## Client side: say something.
+func say(channel_id: StringName, text: String) -> void:
+	if net == null or net.is_server or text.strip_edges() == "":
+		return
+
+	net.send(
+		HungryRequest.of(HungryEvents.Ask.SAY, HungryEvents.write_say(channel_id, text)),
+		0
+	)
+
+
+## Client side: rock the vote, nominate, or cast one.
+func vote(token: String) -> void:
+	if net == null or net.is_server or token.strip_edges() == "":
+		return
+
+	net.send(
+		HungryRequest.of(HungryEvents.Ask.VOTE, HungryEvents.write_vote(token)), 0
+	)
+
+
 ## Publishes this client's avatar. Client side.
 func publish_avatar(avatar: DotAvatar) -> void:
 	if net == null or net.is_server or avatar == null:
@@ -1354,6 +1549,20 @@ func _on_request(message: DotNetMessage) -> void:
 			# when the write returns. Nothing in this handler depends on it having
 			# finished, which is the only reason dropping the await here is safe.
 			_apply_loadout(player_id, ask.reader())
+
+		HungryEvents.Ask.SAY:
+			var said := HungryEvents.read_say(ask.reader())
+
+			if bool(said["ok"]):
+				# Emitted rather than acted on. Everything about what a line means — the
+				# channel's audience, the gag, the rate limit, the command prefix — is
+				# [DotChatRouter]'s, and the router is [HungryModule]'s.
+				say_requested.emit(
+					peer_id, StringName(str(said["channel"])), str(said["text"])
+				)
+
+		HungryEvents.Ask.VOTE:
+			vote_requested.emit(peer_id, HungryEvents.read_vote(ask.reader()))
 
 
 ## Takes a client's avatar, through the schema.

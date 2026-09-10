@@ -47,6 +47,18 @@ var renderer: HungryRenderer = null
 var camera: HungryCamera = null
 var sampler: HungryInput = null
 var hud: HungryHud = null
+
+## The client half of chat: the channels, the history, the unread counts and the gap
+## detection. It decides nothing — every rule is the server's.
+var chat: DotChatClient = null
+
+## The client half of voice. Every call on it is guarded, because "there is no microphone"
+## is a legitimate machine rather than an error.
+var voice: HungryVoice = null
+
+## What the arena has in it that nobody steers. Mirrors, and never spawn.
+var hunters: HungryHunters = null
+var hazards: HungryHazards = null
 var sound: HungrySound = null
 var screens: DotScreenStack = null
 var ui_config: DotUiConfig = null
@@ -124,6 +136,7 @@ func _build() -> DotResult:
 		if not netted.ok:
 			return netted
 
+	_build_client_services()
 	_build_view()
 	_build_ui()
 	return DotResult.success(self)
@@ -173,14 +186,69 @@ func _build_netcode() -> DotResult:
 	bridge.cue.connect(_on_cue)
 	bridge.roster_changed.connect(_on_roster_changed)
 
-	if link.has_signal("chat_received"):
-		link.connect("chat_received", _on_chat)
+	# [b]dot-server's own `chat_received` is deliberately NOT connected.[/b] The server
+	# cancels that path — see [method HungryModule._on_player_chat] — and routes every
+	# line through [DotChatRouter] onto this game's own wire instead. Connecting both
+	# would draw a line twice on a server running the old path and once on one running the
+	# new, which is the sort of difference that survives every test.
+	bridge.chat_received.connect(_on_chat_wire)
+	bridge.hunter_received.connect(_on_hunter)
+	bridge.hazard_received.connect(_on_hazard)
+	bridge.progress_received.connect(_on_progress)
 
 	if link.has_method("ping_ms"):
 		bridge.rtt_source = func() -> float:
 			return float(maxi(0, int(link.call("ping_ms"))))
 
 	return net.start()
+
+
+## Chat, voice, and the two things the arena has in it that nobody steers.
+##
+## Built after the bridge, because both halves need somewhere to send.
+func _build_client_services() -> void:
+	chat = DotChatClient.new()
+	chat.name = "Chat"
+	# The same channel definitions the server routes with — shared rather than sent, for
+	# the arena-size reason: a client holding a different set would show a line on a
+	# channel it has no colour or prefix for.
+	chat.channels = HungryServices.chat_channels()
+	chat.rules = HungryServices.chat_rules()
+	chat.history_limit = 300
+	# Two clients in one process — `examples/sandbox.tscn` — would otherwise collide on
+	# the registry name and one of them would be invisible to whatever asked.
+	chat.register_as = &""
+	add_child(chat)
+	chat.start()
+	chat.message_received.connect(_on_chat_message)
+
+	hunters = HungryHunters.new()
+	hunters.name = "Hunters"
+	add_child(hunters)
+	hunters.setup(false, world)
+
+	hazards = HungryHazards.new()
+	hazards.name = "Hazards"
+	add_child(hazards)
+	hazards.setup(false, world)
+
+
+
+	if bridge == null:
+		return
+
+	voice = HungryVoice.new()
+	voice.name = "Voice"
+	voice.send_fn = func(bytes: PackedByteArray) -> void:
+		if bridge != null and bridge.link != null:
+			# Passed as 1 rather than 0: the peer is ignored on a client, and in this
+			# family zero has meant "everybody" often enough to be worth never writing by
+			# accident.
+			bridge.link.send_voice(1, bytes)
+	add_child(voice)
+
+	voice.setup(not DotPlatform.is_headless())
+	bridge.voice_arrived.connect(voice.receive)
 
 
 func _build_view() -> void:
@@ -192,6 +260,11 @@ func _build_view() -> void:
 	renderer.name = "Renderer"
 	add_child(renderer)
 	renderer.bind(world, camera, _local_player())
+	# The renderer reads the same objects the simulation resolves against, once, rather
+	# than being handed a copy on every change. There is nothing to keep in step because
+	# there is only one list — which is the whole argument this game's arena size makes.
+	renderer.hunters = hunters
+	renderer.hazards = hazards
 
 	sampler = HungryInput.measuring(_me_source(), camera)
 	add_child(sampler)
@@ -252,10 +325,10 @@ func _build_ui() -> void:
 
 	_apply_settings()
 
-	var chat := screens.screen(&"chat") as HungryMenus.ChatScreen
+	var chat_screen := screens.screen(&"chat") as HungryMenus.ChatScreen
 
-	if chat != null:
-		chat.submitted.connect(_on_say)
+	if chat_screen != null:
+		chat_screen.submitted.connect(_on_say)
 
 	var loadout := screens.screen(&"loadout") as HungryMenus.LoadoutScreen
 
@@ -623,16 +696,89 @@ func _on_loadout_chosen(loadout: DotLoadout) -> void:
 		)
 
 
-func _on_chat(payload: Dictionary) -> void:
-	if hud != null:
-		hud.chat(payload)
+## A routed line off this game's own wire. Filed by [DotChatClient], which drops a
+## duplicate and reports a gap.
+func _on_chat_wire(wire: Dictionary) -> void:
+	if chat != null:
+		chat.receive(wire)
+
+
+## A line [DotChatClient] accepted: in sequence, not a duplicate, on a known channel.
+func _on_chat_message(message: DotChatMessage, channel_id: StringName) -> void:
+	if hud == null:
+		return
+
+	var chan := chat.channel(channel_id)
+	var prefix := "%s " % chan.prefix if chan != null and chan.prefix != "" else ""
+
+	# [b]The channel decides how a line is drawn, and the channel is a document.[/b] Its
+	# prefix and colour come off the [DotChatChannel] both ends share, so adding a channel
+	# is adding a definition rather than a branch somebody has to remember to extend.
+	if message.is_from_server() or message.sender_name == "":
+		hud.say(
+			"%s%s" % [prefix, message.text],
+			chan.colour if chan != null else Color(0.62, 0.78, 1.0)
+		)
+		return
+
+	hud.chat({
+		"name": "%s%s" % [prefix, message.sender_name],
+		"text": message.text,
+	})
 
 
 func _on_say(text: String) -> void:
-	if link != null and link.has_method("send_chat"):
-		link.call("send_chat", text, false)
+	if bridge != null and not bridge.net.is_server:
+		bridge.say(HungryServices.CHANNEL_ALL, text)
 	elif hud != null:
 		hud.say("(offline) %s" % text, Color(0.6, 0.62, 0.66))
+
+
+# --- What is in the arena besides the players ------------------------------
+
+func _on_hunter(state: Dictionary) -> void:
+	if hunters == null:
+		return
+
+	hunters.adopt(
+		int(state["hunter_id"]),
+		HungryHunters.id_at(int(state["kind_index"])),
+		state["position"],
+		float(state["radius"]),
+		bool(state["alive"])
+	)
+
+
+func _on_hazard(state: Dictionary) -> void:
+	if hazards == null:
+		return
+
+	if bool(state["present"]):
+		hazards.adopt(
+			int(state["place_id"]),
+			HungryHazards.id_at(int(state["kind_index"])),
+			state["position"]
+		)
+	else:
+		hazards.drop(int(state["place_id"]))
+
+
+## Somebody earned something. Everybody is told, because an achievement nobody sees is a
+## number in a file.
+func _on_progress(state: Dictionary) -> void:
+	if hud == null:
+		return
+
+	var mine: bool = bridge != null and int(state["player_id"]) == bridge.local_player_id
+
+	hud.say(
+		"%s %s (%d)" % [
+			"You earned" if mine else "Somebody earned",
+			str(state["title"]),
+			int(state["value"]),
+		],
+		Color(1.0, 0.85, 0.40) if mine else Color(0.78, 0.72, 0.58)
+	)
 
 
 func _on_leave() -> void:
@@ -649,11 +795,24 @@ func _on_leave() -> void:
 ## Handled here rather than in [HungryInput] because they open screens, and which screens
 ## exist is this file's business. [DotScreenStack] already owns the back key.
 func _unhandled_input(event: InputEvent) -> void:
+	# [b]Voice first, and on both edges.[/b] Everything below this line is `is_pressed`,
+	# so a release handled there would never arrive — and a talk gate opened by a key-down
+	# and never closed is an open microphone for the rest of the session.
+	if voice != null and voice.handle_event(event):
+		get_viewport().set_input_as_handled()
+		return
+
 	if screens == null or not event.is_pressed() or event.is_echo():
 		return
 
 	if event.is_action_pressed(&"ui_text_newline") or _is_key(event, KEY_ENTER):
 		if not screens.is_open(&"chat"):
+			# The microphone closes with the keyboard. Otherwise the key-up for the talk
+			# key lands in the chat box, the gate is never closed, and the player
+			# broadcasts whatever they say while typing.
+			if voice != null:
+				voice.release()
+
 			screens.push(&"chat")
 			get_viewport().set_input_as_handled()
 		return

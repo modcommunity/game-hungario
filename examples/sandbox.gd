@@ -45,14 +45,22 @@ var _client_side: Node = null
 var _command := Dot2DCommand.new()
 
 ## Chat lines the client received.
-var _heard: Array[Dictionary] = []
+var _heard: Array[DotChatMessage] = []
+
+## Anything that came back through dot-server's own chat signal.
+##
+## [b]Expected to stay empty, and that is the check.[/b] This game moved its chat rules
+## onto [DotChatRouter] and cancels dot-server's broadcast; a line arriving here as well
+## would be two paths delivering one message, which is the failure the cancel exists to
+## prevent and the one nobody would notice because the message still arrives.
+var _legacy_heard: Array[Dictionary] = []
 
 ## The second player. Built later, in its own subtree with its own MultiplayerAPI.
 var _other_side: Node = null
 var _other_link: DotClientLink = null
 var _other: HungryClient = null
 var _other_command := Dot2DCommand.new()
-var _other_heard: Array[Dictionary] = []
+var _other_heard: Array[DotChatMessage] = []
 
 
 func _ready() -> void:
@@ -346,8 +354,12 @@ func _test_join() -> bool:
 
 	_link.spawned.connect(func() -> void: spawned[0] = true)
 	_link.disconnected.connect(func(reason: String) -> void: refused[0] = reason)
+	# [b]dot-server's own `chat_received` is deliberately NOT what this listens on.[/b] The
+	# module cancels that path and routes every line through [DotChatRouter] onto this
+	# game's own wire; a test that still listened there would pass on a server running the
+	# old path and fail on the one that ships.
 	_link.chat_received.connect(func(payload: Dictionary) -> void:
-		_heard.append(payload)
+		_legacy_heard.append(payload)
 	)
 
 	var connecting: DotResult = await _link.connect_to_server("127.0.0.1:%d" % PORT)
@@ -558,8 +570,13 @@ func _test_playing() -> void:
 func _test_chat() -> void:
 	_section("chat")
 
+	# Attached here rather than at build time: `_client` is instantiated from a scene and
+	# its chat client exists once it is in the tree.
+	if not _client.chat.message_received.is_connected(_note_heard):
+		_client.chat.message_received.connect(_note_heard)
+
 	var before := _heard.size()
-	_link.send_chat("hello from the sandbox", false)
+	_client.bridge.say(HungryServices.CHANNEL_ALL, "hello from the sandbox")
 
 	var heard := await _until(func() -> bool: return _heard.size() > before, 6.0)
 
@@ -567,23 +584,26 @@ func _test_chat() -> void:
 		_done()
 		return
 
-	var last: Dictionary = _heard[_heard.size() - 1]
+	var last := _heard[_heard.size() - 1]
 	_check(
-		String(last.get("text", "")).contains("hello from the sandbox"),
+		last.text.contains("hello from the sandbox"),
 		"with the text intact",
-		str(last)
+		last.text
+	)
+	_check(
+		last.channel == HungryServices.CHANNEL_ALL,
+		"on the channel it was sent to (%s)" % String(last.channel)
 	)
 
-	# The HUD is what a player actually sees, and it takes the payload straight from
-	# [signal DotClientLink.chat_received].
+	# The HUD is what a player actually sees, and it takes the same message the log does.
 	var lines := _client.hud.feed.line_count()
-	_client.hud.chat(last)
+	_client.hud.chat({"name": last.sender_name, "text": last.text})
 	_check(
 		_client.hud.feed.line_count() > lines,
 		"and the HUD shows it"
 	)
 
-	# Sanitising is dot-server's and happens before anything else sees the text. A
+	# Sanitising is [DotChatFilter]'s and happens before anything else sees the text. A
 	# zero-width space is what somebody uses to slip a name past a filter or to break a
 	# HUD's layout, and a client should never be handed one.
 	var zero_width := String.chr(0x200B)
@@ -593,19 +613,55 @@ func _test_chat() -> void:
 		"and a zero-width space never reaches a client",
 		dirty
 	)
+
+	# [b]The proximity channel, which is the one a lobby's argument does not cover.[/b] An
+	# arena is bigger than a screen, so "near" is a real audience — and the check that it
+	# works is that a line on it reaches the person who sent it, who is by definition
+	# within their own radius.
+	var near_before := _heard.size()
+	_client.bridge.say(HungryServices.CHANNEL_NEAR, "anybody close?")
+
+	var nearby := await _until(func() -> bool: return _heard.size() > near_before, 6.0)
+	_check(nearby, "a line on the proximity channel reaches somebody standing there")
+
+	_check(
+		_legacy_heard.is_empty(),
+		"and dot-server's own chat delivered nothing beside it (%d)"
+			% _legacy_heard.size(),
+		"two paths for one message is two sets of rules, and the one that skipped the "
+		+ "filter would be the one that leaked admin chat"
+	)
+
+	# The legacy path still works and is still the router's: a browser shell's own chat
+	# box goes through dot-server and has no way to name a channel, and the module
+	# forwards it rather than dropping it.
+	var forwarded_before := _heard.size()
+	_link.send_chat("said the old way", false)
+
+	var forwarded := await _until(
+		func() -> bool: return _heard.size() > forwarded_before, 6.0
+	)
+	_check(
+		forwarded,
+		"a line sent through dot-server's own chat is forwarded onto this game's wire"
+	)
 	_done()
+
+
+func _note_heard(message: DotChatMessage, _channel: StringName) -> void:
+	_heard.append(message)
 
 
 func _say_and_wait(text: String) -> String:
 	var before := _heard.size()
-	_link.send_chat(text, false)
+	_client.bridge.say(HungryServices.CHANNEL_ALL, text)
 
 	var heard := await _until(func() -> bool: return _heard.size() > before, 6.0)
 
 	if not heard:
 		return ""
 
-	return String((_heard[_heard.size() - 1] as Dictionary).get("text", ""))
+	return _heard[_heard.size() - 1].text
 
 
 ## A second player, over a second socket, in a second MultiplayerAPI.
@@ -639,7 +695,7 @@ func _test_two_players() -> void:
 	var spawned := [false]
 	_other_link.spawned.connect(func() -> void: spawned[0] = true)
 	_other_link.chat_received.connect(func(payload: Dictionary) -> void:
-		_other_heard.append(payload)
+		_legacy_heard.append(payload)
 	)
 
 	var connecting: DotResult = await _other_link.connect_to_server(
@@ -742,9 +798,11 @@ func _test_two_players() -> void:
 			)
 	)
 
-	# Chat goes to everybody, not back to the sender only.
+	# Chat goes to everybody, not back to the sender only. Over this game's own wire, and
+	# from the SECOND client — the one that did not ask — which is the half a single
+	# client cannot prove.
 	var heard_before := _heard.size()
-	_other_link.send_chat("second player here", false)
+	_other.bridge.say(HungryServices.CHANNEL_ALL, "second player here")
 
 	var relayed := await _until(func() -> bool: return _heard.size() > heard_before, 6.0)
 	_check(relayed, "a line from one reaches the other")

@@ -18,6 +18,19 @@
 /addons/dot_cloud
 /addons/dot_loadout
 /addons/dot_stats
+/addons/dot_achievements
+/addons/dot_combat
+/addons/dot_map
+/addons/dot_leaderboard
+/addons/dot_npc
+/addons/dot_npc_ai
+/addons/dot_npc_ai_director
+/addons/dot_props
+/addons/dot_vote
+/addons/dot_browser
+/addons/dot_chat
+/addons/dot_moderation
+/addons/dot_voice
 
 # Exports
 build/

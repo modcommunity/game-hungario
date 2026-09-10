@@ -257,6 +257,120 @@ func _test_event_wire() -> void:
 		"and a carry list round-trips"
 	)
 
+	# --- chat, and the one meta field this wire carries ---
+	#
+	# [b]Every encoder against its decoder, which is what this section is for.[/b] The two
+	# have to be exact inverses and nothing can check that for you: dot-moderation shipped
+	# a store whose writer and reader never met and every voice mute loaded back as a
+	# warning, which enforces nothing.
+	var line := DotChatMessage.make(
+		DotChatMessage.Kind.SAY, HungryServices.CHANNEL_NEAR, "42", "Ada", "hello there"
+	)
+	line.seq = 9
+	line.sent_at = 1700000000
+
+	var wire := line.to_dictionary()
+	wire["x"] = {"p": 42}
+
+	var chat := HungryEvents.read_chat(DotNetReader.new(HungryEvents.write_chat(wire)))
+	_check(bool(chat["ok"]), "a chat line round-trips")
+	_check(String(chat["m"]) == "hello there", "with the text")
+	_check(String(chat["c"]) == String(HungryServices.CHANNEL_NEAR), "and the channel")
+	_check(String(chat["d"]) == "Ada", "and the name")
+	_check(
+		typeof(chat.get("x")) == TYPE_DICTIONARY
+			and int((chat["x"] as Dictionary).get("p", 0)) == 42,
+		"and the player it belongs to, which is what a bubble is drawn over"
+	)
+
+	# [b]The kind travels as an index into one table, used in both directions.[/b] Every
+	# value of the enum, because dot-moderation's bug was exactly one value with no case.
+	var kinds_ok := true
+
+	for kind in DotChatMessage.Kind.values():
+		var one := DotChatMessage.make(
+			kind as DotChatMessage.Kind, HungryServices.CHANNEL_ALL, "1", "Ada", "x"
+		)
+		var back := HungryEvents.read_chat(
+			DotNetReader.new(HungryEvents.write_chat(one.to_dictionary()))
+		)
+
+		if String(back["k"]) != one.kind_name():
+			kinds_ok = false
+
+	_check(kinds_ok, "every chat kind survives the wire, not just the common one")
+
+	var said := HungryEvents.read_say(
+		DotNetReader.new(HungryEvents.write_say(HungryServices.CHANNEL_NEAR, "anybody?"))
+	)
+	_check(
+		bool(said["ok"]) and String(said["text"]) == "anybody?"
+			and String(said["channel"]) == String(HungryServices.CHANNEL_NEAR),
+		"and a client's own line round-trips with the channel it chose"
+	)
+
+	# --- hunters and hazards ---
+	var hunter := HungryEvents.read_hunter(
+		DotNetReader.new(
+			HungryEvents.write_hunter(
+				77, HungryHunters.index_of(&"stalker"), Vector2(120.0, -340.0), 26.5, true
+			)
+		)
+	)
+	_check(bool(hunter["ok"]), "a hunter round-trips")
+	_check(int(hunter["hunter_id"]) == 77, "with its id")
+	_check(
+		HungryHunters.id_at(int(hunter["kind_index"])) == &"stalker",
+		"and its kind, as an index rather than a name"
+	)
+	_check(
+		(hunter["position"] as Vector2).distance_to(Vector2(120.0, -340.0)) < 1.0,
+		"and its position, quantised over the same range a snapshot uses",
+		str(hunter["position"])
+	)
+
+	var hazard := HungryEvents.read_hazard(
+		DotNetReader.new(
+			HungryEvents.write_hazard(
+				5, HungryHazards.index_of(&"spike"), Vector2(-900.0, 20.0), true
+			)
+		)
+	)
+	_check(bool(hazard["ok"]), "a hazard round-trips")
+	_check(
+		HungryHazards.id_at(int(hazard["kind_index"])) == &"spike",
+		"with its kind"
+	)
+	_check(bool(hazard["present"]), "and whether it is still there")
+
+	# --- progress and votes ---
+	var earned := HungryEvents.read_progress(
+		DotNetReader.new(HungryEvents.write_progress(7, &"eat_100", "Peckish", 10))
+	)
+	_check(
+		bool(earned["ok"]) and String(earned["id"]) == "eat_100"
+			and int(earned["value"]) == 10,
+		"an achievement round-trips"
+	)
+
+	_check(
+		HungryEvents.read_vote(DotNetReader.new(HungryEvents.write_vote("nominate frenzy")))
+			== "nominate frenzy",
+		"and a vote token, which is a token because what an id MEANS is a source's business"
+	)
+
+	# The catalogue orders both ends index by. [b]Sorted as String, not as StringName[/b]:
+	# `Array.sort()` on a StringName compares interned pointers, so two peers give one
+	# thing two different indices — dot-net shipped that with message ids and only a
+	# browser client, which is a separate program with its own intern table, could see it.
+	for ids in [HungryHunters.wire_ids(), HungryHazards.wire_ids()]:
+		var sorted: PackedStringArray = (ids as PackedStringArray).duplicate()
+		sorted.sort()
+		_check(
+			Array(ids) == Array(sorted),
+			"a wire catalogue is in lexicographic order (%s)" % str(ids)
+		)
+
 	# A body claiming a kind that does not exist has to be refused rather than
 	# dispatched, because the handler's `match` would silently fall through.
 	var bogus := HungryEvent.of(31, PackedByteArray())
