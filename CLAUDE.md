@@ -693,6 +693,22 @@ reason — a free camera over a 2D arena is the whole map.
 "not spectating" and "spectating a point at the origin" are different answers, and this
 arena is centred on the origin.
 
+## A suite that fails on its ninth run
+
+`examples/dedicated.tscn`'s achievements section recorded 120 bites against a **fixed**
+player key and then asserted the second tier had *not* unlocked.
+
+`DotAchievementStoreFile` writes to `user://`, which survives the process. So every run
+added 120 bites to the last run's total, the 1000-bite tier unlocked somewhere around the
+ninth run, and the check failed from then on — on a machine where nothing had changed and
+in a repository nobody had touched.
+
+It is this family's "a test that passes for the wrong reason" with the sign flipped: a
+test that eventually **fails** for a reason that has nothing to do with the code, and
+whose failure points at the achievements system rather than at the suite. The key is
+now unique per run; clearing the directory instead would be a suite deleting a player's
+progress, which is the one thing that system must never do by accident.
+
 ## Things deliberately not here
 
 - **Teams.** dot-match does teams properly and `HungryRules` would need about ten lines.

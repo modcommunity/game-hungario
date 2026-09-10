@@ -1046,17 +1046,31 @@ func _test_progress() -> void:
 	# The link is the whole integration and it is a signal connection.
 	_check(progress.link != null, "the stats link is wired")
 
-	progress.begin("test-player")
+	# **A key that is different every run, and it is not a nicety.**
+	#
+	# `DotAchievementStoreFile` writes to `user://`, which survives the process — so a
+	# fixed key accumulates across every run of this suite, and the 120 bites below add
+	# to the last run's total rather than starting from nothing. The first tier keeps
+	# unlocking and the "and not the second" check passes for about eight runs and then
+	# fails for ever, on a machine where nothing has changed. It is the family's
+	# "a test that passes for the wrong reason" with the sign flipped: a test that
+	# eventually fails for a reason that has nothing to do with the code.
+	#
+	# Clearing the directory instead would be a suite deleting a player's progress,
+	# which is the one thing this system must never do by accident.
+	var player := "test-player-%d" % Time.get_ticks_usec()
+
+	progress.begin(player)
 
 	for _bite in range(120):
-		progress.achievements.record("test-player", &"food", 1.0)
+		progress.achievements.record(player, &"food", 1.0)
 
 	_check(
-		progress.achievements.is_unlocked("test-player", &"eat_100"),
+		progress.achievements.is_unlocked(player, &"eat_100"),
 		"a hundred bites unlocks the first tier"
 	)
 	_check(
-		not progress.achievements.is_unlocked("test-player", &"eat_1000"),
+		not progress.achievements.is_unlocked(player, &"eat_1000"),
 		"and not the second"
 	)
 
@@ -1067,8 +1081,8 @@ func _test_progress() -> void:
 	monster.best_mass = 4200.0
 	monster.players_eaten = 3
 
-	progress.file_round("test-player", monster, 2)
-	progress.file_round("test-player", monster, 5)
+	progress.file_round(player, monster, 2)
+	progress.file_round(player, monster, 5)
 
 	var deaths := progress.page(&"fewest_deaths", 5)
 	_check(deaths.size() == 1, "a board holds one entry per player (%d)" % deaths.size())
