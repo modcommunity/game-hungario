@@ -21,6 +21,17 @@ extends Dot2DCameraRig
 ## `func() -> HungryMonster`. What to frame. Returning null leaves the camera where it is.
 var monster_source: Callable = Callable()
 
+## `func() -> Variant`. A world position to frame instead, or null.
+##
+## [b]This is where a dead player looks.[/b] Leaving the camera where it is — which is
+## what happens with nothing to follow — parks it on the patch of arena that ate you
+## while the game happens somewhere else. [HungrySpectate] answers this with the monster
+## the server has decided you may watch.
+##
+## A [Variant] rather than a [Vector2] because "not spectating" and "spectating a point
+## at the origin" are different answers, and this arena is centred on the origin.
+var position_source: Callable = Callable()
+
 ## The node the rig follows, moved to the centroid every frame.
 ##
 ## A node rather than a position because [Dot2DCameraRig] follows a [Node2D] and smooths
@@ -65,11 +76,25 @@ func _process(delta: float) -> void:
 
 	var monster := _monster()
 
-	if monster != null and monster.alive and _anchor != null \
-			and is_instance_valid(_anchor):
-		_anchor.global_position = monster.centre()
+	if _anchor != null and is_instance_valid(_anchor):
+		# Explicitly Variant: `:=` on a Variant is a parse error under this project's
+		# warning settings, which is already in the family's notes.
+		var watched: Variant = _watched()
+
+		if watched != null:
+			_anchor.global_position = watched as Vector2
+		elif monster != null and monster.alive:
+			_anchor.global_position = monster.centre()
 
 	super._process(delta)
+
+
+## The point a spectator is watching, or null.
+func _watched() -> Variant:
+	if not position_source.is_valid():
+		return null
+	var value: Variant = position_source.call()
+	return value if value is Vector2 else null
 
 
 func _monster() -> HungryMonster:
@@ -84,7 +109,13 @@ func _monster() -> HungryMonster:
 func _target_radius() -> float:
 	var monster := _monster()
 
-	if monster == null or not monster.alive:
-		return 0.0
+	if monster != null and monster.alive:
+		return monster.spread_radius()
 
-	return monster.spread_radius()
+	# Spectating: a fixed frame rather than zero. Zero is what a rig reads as "no
+	# reference" and it zooms all the way in — so a dead player watching somebody else
+	# would see one pixel of them, which is worse than the camera not having moved.
+	if _watched() != null:
+		return reference_radius * 0.6
+
+	return 0.0

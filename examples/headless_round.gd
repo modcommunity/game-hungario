@@ -66,6 +66,7 @@ func _run() -> void:
 	_test_rider()
 	_test_interface()
 	_test_the_gauntlet()
+	_test_spectating()
 
 	print("")
 	_check(
@@ -961,6 +962,78 @@ func _test_devouring() -> void:
 
 # --- Interest --------------------------------------------------------------
 	_done()
+
+## Where a dead monster's owner looks.
+func _test_spectating() -> void:
+	_section("spectating")
+
+	var world := _make_world()
+	world.add_player(1, "Eaten")
+	world.add_player(2, "Eater")
+	_settle(world)
+
+	world.spawn(1, Vector2(0.0, 0.0))
+	world.spawn(2, Vector2(300.0, 0.0))
+
+	if not _check(world.spectate != null, "the world builds a spectate layer"):
+		_done()
+		return
+
+	var rules := world.spectate.manager.rules
+	_check(rules.force_camera == 0, "a free-for-all restricts the camera to nobody")
+	_check(
+		not rules.allow_while_alive,
+		"and a LIVING player may not watch: knowing where the biggest monster is "
+		+ "standing is the whole skill of this game"
+	)
+	_check(
+		not rules.allow_roaming,
+		"nor roam, because a free camera over a 2D arena is the entire map"
+	)
+
+	_check(
+		not world.spectate.is_spectating(1),
+		"a living player is not watching anything"
+	)
+
+	# Killing them the way the world does it.
+	var monster := world.monster_for(1)
+	monster.alive = false
+	world.player_died.emit(1, 2)
+
+	_check(world.spectate.is_spectating(1), "a dead one is")
+
+	# The death camera first, then a real target — the hand-over every game that writes
+	# this itself gets wrong.
+	_run_ticks(world, world.tick_rate * 3)
+
+	_check(
+		world.spectate.watching(1) == 2,
+		"and ends up watching the player who is still alive",
+		str(world.spectate.watching(1))
+	)
+
+	var where: Variant = world.spectate.camera_position(1)
+	_check(where != null, "with a camera position rather than null")
+
+	if where is Vector2:
+		var target := world.monster_for(2)
+		_check(
+			(where as Vector2).distance_to(target.centre()) < 1.0,
+			"which is where that player's monster actually is, on the XZ plane the "
+			+ "whole family maps 2D onto",
+			"%v against %v" % [where as Vector2, target.centre()]
+		)
+
+	# And coming back stops it.
+	world.spawn(1, Vector2(0.0, 0.0))
+	_check(
+		not world.spectate.is_spectating(1),
+		"and respawning puts them back in their own view"
+	)
+
+	_done()
+
 
 func _test_interest() -> void:
 	_section("what a client is told")

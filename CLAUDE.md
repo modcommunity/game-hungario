@@ -667,6 +667,32 @@ Mouse steers — near is slow, far is full speed. Space splits, W ejects, Q thro
 the board, Enter is chat, Escape is the menu and the loadout. In the server console,
 `hungry_bots 6` fills it.
 
+## Where a dead monster's owner looks
+
+**Until `HungrySpectate` existed the camera stayed exactly where the monster died.**
+`HungryCamera` follows an anchor at the mass-weighted centroid and, with nothing to
+follow, leaves the camera where it is — so the seconds between being eaten and coming
+back were spent looking at the patch of arena that ate you, while the game happened
+somewhere else.
+
+**A 2D world is the XZ plane, which is what makes this four lines rather than a second
+addon.** dot-npc settled that convention and everything downstream inherited it;
+`DotSpectatorManager.camera_2d_of` gives a position back and nothing here needs a 3D
+camera or a second code path. The suite asserts the position is where the watched
+monster's centroid actually is, which is the check that would fail if the plane
+convention were ever quietly changed.
+
+**The policy is this game's own, and the important line is not the obvious one.**
+`force_camera` is 0, because a free-for-all has no sides and restricting the camera to
+one restricts it to a team of one. What matters is `allow_while_alive = false`: knowing
+where the biggest monster is standing is the entire skill of this game, and a living
+player with a camera on somebody else has it for free. Roaming is off for the same
+reason — a free camera over a 2D arena is the whole map.
+
+`HungrySpectate.camera_position` returns a `Variant` rather than a `Vector2` deliberately:
+"not spectating" and "spectating a point at the origin" are different answers, and this
+arena is centred on the origin.
+
 ## Things deliberately not here
 
 - **Teams.** dot-match does teams properly and `HungryRules` would need about ten lines.

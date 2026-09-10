@@ -253,6 +253,15 @@ func _build_client_services() -> void:
 
 func _build_view() -> void:
 	camera = HungryCamera.framing(_me_source(), world.arena)
+
+	# Where a dead player looks. Without it the camera stays exactly where the monster
+	# died — parked on the patch of arena that ate you while the game happens somewhere
+	# else — which is what this game did from the day it was written.
+	camera.position_source = func() -> Variant:
+		if world.spectate == null:
+			return null
+		return world.spectate.camera_position(_local_player())
+
 	add_child(camera)
 	camera.make_current()
 

@@ -103,6 +103,10 @@ var items: DotItemCatalogue = null
 ## dot-combat installed — which every one of this project's own headless suites does.
 var damage_gate: Callable = Callable()
 
+## Where a dead monster's owner looks. Built by [method setup] on the authority and on a
+## client alike, because both ends need the camera to point somewhere.
+var spectate: HungrySpectate = null
+
 ## player id -> [HungryMonster].
 var _monsters: Dictionary = {}
 
@@ -189,6 +193,21 @@ func setup() -> DotResult:
 
 	if not match_result.ok:
 		return match_result
+
+	spectate = HungrySpectate.new()
+	spectate.name = "Spectate"
+	add_child(spectate)
+
+	var watching := spectate.setup(self)
+
+	if not watching.ok:
+		# Not fatal. A world with no spectator camera is the world this game has had
+		# since it was written; saying so and carrying on is better than refusing to
+		# start a round over where a dead player's camera points.
+		DotLog.warn(CHANNEL, "spectating is off", {"why": watching.error.message})
+		remove_child(spectate)
+		spectate.queue_free()
+		spectate = null
 
 	if register_service:
 		_registered_name = (
@@ -668,6 +687,13 @@ func tick(commands: Dictionary = {}) -> void:
 
 	_sync_flags()
 	_sync_scores()
+
+	# Before the match, which is where every per-tick observer in this world goes: the
+	# camera has to be looking at where this tick left everybody, and a match that ended
+	# the round first would have taken them all away.
+	if spectate != null:
+		spectate.tick(delta)
+
 	match_node.tick(_tick)
 
 
@@ -684,6 +710,9 @@ func client_tick(tick_value: int) -> void:
 
 	_expire_effects()
 	arena.sync_grid()
+
+	if spectate != null:
+		spectate.tick(1.0 / float(tick_rate))
 
 	for shot in projectiles():
 		# A defensive prune only. Every projectile the authority resolves produces an
