@@ -39,7 +39,7 @@ const CHANNEL := "hungry.hunters"
 ## its kind and its radius, exactly as a piece of food is.
 ##
 ## [b]In `game/` and `hungry_`-prefixed, and that is a deployment constraint.[/b]
-## dot-server-setup-test vendors each built-in game's `game/` and `scenes/` into ONE
+## dot-server-deploy vendors each built-in game's `game/` and `scenes/` into ONE
 ## directory — a `.tscn` names its scripts by absolute `res://` path and there is no
 ## relative form — and `content/` is not among the directories it copies. A scene under
 ## `content/` therefore mounts in a developer checkout and is missing in the deployment,
