@@ -12,9 +12,7 @@ This project, along with every asset it is built on, was built initially with **
 I intend on reviewing code, testing, and editing documentation regularly. If you're interested in helping out, please let me know!
 
 ## An Arena Game Built Out of `dot-*`
-An agar.io-shaped game where the thing you steer is a monster and the thing riding it is
-your avatar. Built out of the [dot-*](https://github.com/modcommunity) family, and meant to be played from a
-link.
+An agar.io-shaped game where the thing you steer is a monster and the thing riding it is your avatar. Built out of the [dot-*](https://github.com/modcommunity) family, and meant to be played from a link.
 
 ```bash
 godot --path .                                       # the launcher
@@ -22,9 +20,7 @@ godot --path . -- --offline                          # bots, no server needed
 godot --headless --path . res://examples/dedicated.tscn -- --serve
 ```
 
-Mouse steers — near is slow, far is full speed. **Space** splits, **W** ejects, **Q**
-throws, **Tab** is the board, **Enter** is chat, **Escape** is the menu and your loadout.
-On a phone, a drag steers and there are two buttons.
+Mouse steers — near is slow, far is full speed. **Space** splits, **W** ejects, **Q** throws, **Tab** is the board, **Enter** is chat, **Escape** is the menu and your loadout. On a phone, a drag steers and there are two buttons.
 
 ## What it is made of
 
@@ -45,62 +41,33 @@ On a phone, a drag steers and there are two buttons.
 
 ## The rules
 
-Your mass is your size, your speed and your score, and they trade against each other:
-twice the mass is **√2** the width and about **26% less** speed. That single relationship
-is the whole balance — it is what makes two small monsters worth the same area as one big
-one, and why being biggest is not simply winning.
+Your mass is your size, your speed and your score, and they trade against each other: twice the mass is **√2** the width and about **26% less** speed. That single relationship is the whole balance — it is what makes two small monsters worth the same area as one big one, and why being biggest is not simply winning.
 
-**Eating needs a ratio and an overlap.** You have to be a quarter bigger *and* properly on
-top of them.
+**Eating needs a ratio and an overlap.** You have to be a quarter bigger *and* properly on top of them.
 
-**Food comes in four sizes** — crumb, morsel, chunk, haunch — and the big ones are rare.
-The win target is roughly seven hundred average pieces, which nobody reaches by grazing.
-Getting there means eating players.
+**Food comes in four sizes** — crumb, morsel, chunk, haunch — and the big ones are rare. The win target is roughly seven hundred average pieces, which nobody reaches by grazing. Getting there means eating players.
 
-**Fruit is rare and does something for eight seconds.** *Rush* makes you faster, *maw*
-lowers the ratio you need to eat somebody, *rind* absorbs one burst.
+**Fruit is rare and does something for eight seconds.** *Rush* makes you faster, *maw* lowers the ratio you need to eat somebody, *rind* absorbs one burst.
 
-**Throwables are picked up off the ground.** A *pepper* bursts whoever it hits into five
-pieces — which is how a small monster turns an unwinnable fight into several winnable
-ones. A *frostberry* slows them. A *lure* plants a ring of food where it lands, which is
-worth a lot to whoever gets there first and is a very visible advertisement of where you
-are.
+**Throwables are picked up off the ground.** A *pepper* bursts whoever it hits into five pieces — which is how a small monster turns an unwinnable fight into several winnable ones. A *frostberry* slows them. A *lure* plants a ring of food where it lands, which is worth a lot to whoever gets there first and is a very visible advertisement of where you are.
 
-**Splitting throws half of you forward.** It is how a big monster catches a small one, and
-it is a risk: the pieces cannot merge for sixteen seconds and each of them is individually
-smaller than you were. Bursting is the same thing done to you against your will.
+**Splitting throws half of you forward.** It is how a big monster catches a small one, and it is a risk: the pieces cannot merge for sixteen seconds and each of them is individually smaller than you were. Bursting is the same thing done to you against your will.
 
-**Every monster is ringed by what it means to you** — green if you could eat it, red if it
-could eat you, nothing if neither. Eating needs a *quarter* more mass, which is about 12%
-more width, and nobody judges that by eye while being chased.
+**Every monster is ringed by what it means to you** — green if you could eat it, red if it could eat you, nothing if neither. Eating needs a *quarter* more mass, which is about 12% more width, and nobody judges that by eye while being chased.
 
-**Let go of the mouse to gather.** Every piece steers toward the cursor's point, so putting
-the cursor on yourself pulls your pieces back together.
+**Let go of the mouse to gather.** Every piece steers toward the cursor's point, so putting the cursor on yourself pulls your pieces back together.
 
-**Eject to get smaller on purpose.** W spits a blob of mass out in front of you, worth
-slightly less than it cost. Being smaller is being faster, harder to corner, and able to
-fit through a gap between two things that could eat you — and the blob is ordinary food
-that anybody can take, including whoever is chasing you.
+**Eject to get smaller on purpose.** W spits a blob of mass out in front of you, worth slightly less than it cost. Being smaller is being faster, harder to corner, and able to fit through a gap between two things that could eat you — and the blob is ordinary food that anybody can take, including whoever is chasing you.
 
-**Pick a loadout before you spawn.** A starting throwable, and one of three traits:
-*nimble* (faster, smaller start), *sturdy* (bigger start, slower) or *greedy* (more from
-every piece of food, smaller start). Every one is a trade, and the server checks the
-choice against what you have unlocked.
+**Pick a loadout before you spawn.** A starting throwable, and one of three traits: *nimble* (faster, smaller start), *sturdy* (bigger start, slower) or *greedy* (more from every piece of food, smaller start). Every one is a trade, and the server checks the choice against what you have unlocked.
 
-Mass above 260 decays at a fifth of a percent a second. A player who is still eating never
-notices; a player who has parked in a corner does.
+Mass above 260 decays at a fifth of a percent a second. A player who is still eating never notices; a player who has parked in a corner does.
 
 ## Your avatar rides the monster
 
-The rider on top of your monster is a **dot-user-avatar document**: a handful of ids and
-colours the server validates against a schema and an entitlement set **without loading any
-art at all**. That is what makes it possible for a dedicated server to say no to a cosmetic
-it has never seen.
+The rider on top of your monster is a **dot-user-avatar document**: a handful of ids and colours the server validates against a schema and an entitlement set **without loading any art at all**. That is what makes it possible for a dedicated server to say no to a cosmetic it has never seen.
 
-The parts themselves come from a **signed dot-cloud pack** when a server has published one,
-from the build when it has not, and are drawn from their id and colours when there is
-neither. That order is deliberate: downloadable cosmetics are an upgrade, not a
-requirement, and a player you cannot see is a competitive advantage.
+The parts themselves come from a **signed dot-cloud pack** when a server has published one, from the build when it has not, and are drawn from their id and colours when there is neither. That order is deliberate: downloadable cosmetics are an upgrade, not a requirement, and a player you cannot see is a competitive advantage.
 
 ```bash
 godot --headless --path . res://tools/publish_avatars.tscn      # sign and package
@@ -109,60 +76,35 @@ godot --headless --path . res://examples/content.tscn           # publish, fetch
 
 ## Where dot-2d stops and this starts
 
-dot-2d ships the motor, the mass relationships, the spatial hash and the deterministic
-scatter field, and **deliberately stops short of splitting and merging** — split pieces are
-several entities owned by one player, which needs an ownership model and a merge rule that
-are a game's design rather than a library's.
+dot-2d ships the motor, the mass relationships, the spatial hash and the deterministic scatter field, and **deliberately stops short of splitting and merging** — split pieces are several entities owned by one player, which needs an ownership model and a merge rule that are a game's design rather than a library's.
 
-`HungryMonster` is that ownership model: a player is a *set* of pieces. Your mass is the
-sum, your position is the mass-weighted centroid, your rider sits on the biggest piece, and
-you are dead when the last one is eaten. `HungryWorld` is the rest — eating, splitting,
-bursting, merging, throwables, and the bookkeeping that keeps the spatial hash agreeing
-with the world.
+`HungryMonster` is that ownership model: a player is a *set* of pieces. Your mass is the sum, your position is the mass-weighted centroid, your rider sits on the biggest piece, and you are dead when the last one is eaten. `HungryWorld` is the rest — eating, splitting, bursting, merging, throwables, and the bookkeeping that keeps the spatial hash agreeing with the world.
 
-The one thing that had to change in the *shape* of dot-2d's command to make a multi-piece
-game work is described under "A player is a set, and the pointer is a point" in
-[CLAUDE.md](CLAUDE.md). Short version: every piece steers toward the cursor's point rather
-than along one shared direction, or a split monster can never rejoin.
+The one thing that had to change in the *shape* of dot-2d's command to make a multi-piece game work is described under "A player is a set, and the pointer is a point" in [CLAUDE.md](CLAUDE.md). Short version: every piece steers toward the cursor's point rather than along one shared direction, or a split monster can never rejoin.
 
 ## When you are eaten
 
-You watch whoever ate you until you respawn — and if they have been eaten too, the leader.
-A camera left where you died is a black rectangle while the fight that killed you carries
-on somewhere else.
+You watch whoever ate you until you respawn — and if they have been eaten too, the leader. A camera left where you died is a black rectangle while the fight that killed you carries on somewhere else.
 
 ## Settings
 
-Volume, camera smoothing, zoom-with-size, the minimap, names, the feed and the threat
-rings, from the pause menu. They are written to `user://cfg/hungry.json` and survive a
-restart.
+Volume, camera smoothing, zoom-with-size, the minimap, names, the feed and the threat rings, from the pause menu. They are written to `user://cfg/hungry.json` and survive a restart.
 
-The screen has no layout code: `DotSettingsPanel` builds the editors from the config's own
-`@export` annotations, so a setting added to `HungryConfig` appears there and nothing else
-changes.
+The screen has no layout code: `DotSettingsPanel` builds the editors from the config's own `@export` annotations, so a setting added to `HungryConfig` appears there and nothing else changes.
 
 ## Multiplayer
 
 Everything here is server-authoritative. Clients send inputs, never state.
 
-- **Eleven hundred pieces of food are never replicated.** They are placed by a hash of
-  (seed, index), so a client lays the whole field out from one integer; what travels is
-  which slots have been eaten.
-- **Each piece is a replicated entity**, interest-managed from the monster's centroid, so a
-  client is told about what is on its screen and nothing else. Data never sent cannot be
-  drawn on a wallhack.
-- **Your own monster is predicted** and reconciled against the server, so it moves on the
-  tick you press rather than a round trip later.
-- **No audio files either.** The ten sounds are generated at startup — a sweep, a noise
-  component and an envelope — so the game makes noise without anybody producing a WAV.
+- **Eleven hundred pieces of food are never replicated.** They are placed by a hash of (seed, index), so a client lays the whole field out from one integer; what travels is which slots have been eaten.
+- **Each piece is a replicated entity**, interest-managed from the monster's centroid, so a client is told about what is on its screen and nothing else. Data never sent cannot be drawn on a wallhack.
+- **Your own monster is predicted** and reconciled against the server, so it moves on the tick you press rather than a round trip later.
+- **No audio files either.** The ten sounds are generated at startup — a sweep, a noise component and an envelope — so the game makes noise without anybody producing a WAV.
 - **The server can change mode with everybody still connected.** `changegame frenzy`.
 
 ## Playing it in a browser
 
-See [web/README.md](web/README.md). Short version: the server listens on **WebSocket**
-because a browser has no UDP and Godot's web template does not ship ENet at all; the web
-build is a **client** because a tab cannot listen; and the page needs `wss://` because an
-HTTPS page may not open an insecure socket.
+See [web/README.md](web/README.md). Short version: the server listens on **WebSocket** because a browser has no UDP and Godot's web template does not ship ENet at all; the web build is a **client** because a tab cannot listen; and the page needs `wss://` because an HTTPS page may not open an insecure socket.
 
 `web/embed.html` takes the server from the query string, so one export serves every server.
 
@@ -192,5 +134,4 @@ godot --headless --path . res://examples/sandbox.tscn          #  68 — two rea
 godot --headless --path . res://examples/content.tscn          #  45 — the cloud path
 ```
 
-Each exits non-zero on failure. See [CLAUDE.md](CLAUDE.md) for the setup and for what each
-one is actually checking.
+Each exits non-zero on failure. See [CLAUDE.md](CLAUDE.md) for the setup and for what each one is actually checking.
