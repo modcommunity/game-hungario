@@ -1277,10 +1277,19 @@ func _register_games() -> void:
 # --- Console ---------------------------------------------------------------
 
 func _register_console() -> void:
+	# **`.with_chat()` is what lets a player or an admin type these.**
+	# `DotConCommand.chat_allowed` defaults to false and dot-server's chat manager —
+	# which is what actually handles a `!command` — dispatches with `Source.CHAT`, so an
+	# unmarked command answers "cannot be run from chat" however many flags you hold.
+	#
+	# Marked here are the player-facing ones and the moderation ones dot-server marks on
+	# its own equivalents. The cheats and the ones that change the world stay
+	# console-only, for the reason game-g2gfast's suite asserts about its map command:
+	# a thing that ends everybody's round is not a thing you type mid-round.
 	add_command(
 		"hungry_status", _cmd_status, "Show the world", DotAdminFlags.GENERIC
-	)
-	add_command("hungry_top", _cmd_top, "Show the leaderboard", "")
+	).with_chat()
+	add_command("hungry_top", _cmd_top, "Show the leaderboard", "").with_chat()
 	add_command(
 		"hungry_loadouts", _cmd_loadouts, "Show what players brought in",
 		DotAdminFlags.GENERIC
@@ -1305,11 +1314,11 @@ func _register_console() -> void:
 	add_command(
 		"hungry_services", _cmd_services,
 		"Show chat, voice and moderation", DotAdminFlags.GENERIC
-	)
+	).with_chat()
 	add_command(
 		"hungry_hunters", _cmd_hunters,
 		"hungry_hunters [on|off|clear] — the NPC monsters", DotAdminFlags.GENERIC
-	)
+	).with_chat()
 	add_command(
 		"hungry_hazards", _cmd_hazards,
 		"hungry_hazards [scatter <n>|clear] — rocks, spikes and lures",
@@ -1318,21 +1327,21 @@ func _register_console() -> void:
 	add_command(
 		"hungry_boards", _cmd_boards,
 		"hungry_boards [board] — the persistent leaderboards", ""
-	)
+	).with_chat()
 	add_command(
 		"hungry_vote", _cmd_vote,
 		"hungry_vote [open|status|next] — what plays next", DotAdminFlags.CHANGEMAP
-	)
+	).with_chat()
 	# MUTE rather than BAN: quieting somebody and removing them are different powers, and
 	# dot-server's own flags are what distinguish them.
 	add_command(
 		"hungry_gag", _cmd_gag,
 		"hungry_gag <who> <seconds> [reason]", DotAdminFlags.MUTE
-	)
+	).with_chat()
 	add_command(
 		"hungry_mute", _cmd_mute,
 		"hungry_mute <who> <seconds> [reason]", DotAdminFlags.MUTE
-	)
+	).with_chat()
 
 	_cv_bots = add_cvar("hungry_bots", "0", "Bots to keep in the world")
 
