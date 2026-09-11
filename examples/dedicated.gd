@@ -668,18 +668,45 @@ func _test_netcode() -> void:
 func _test_game_change() -> void:
 	_section("changing the game")
 
-	var before := _world()
+	# The id, NOT the node. Changing the game FREES the old world, so a lambda that
+	# captured the object was calling with a freed capture by its second iteration:
+	# GDScript substitutes null, `_world() != before` degenerates into
+	# `_world() != null`, and the wait returns the instant ANY world exists rather
+	# than when this one has been replaced. It printed
+	# "Lambda capture at index 0 was freed" on every run and passed anyway.
+	#
+	# An int cannot be freed, so the wait now means what it says. Nothing in this
+	# function may hold the old world across the change -- see the check below.
+	var before_id := _world().get_instance_id()
+
 	var changed: DotResult = await _server.games.change_game(
 		HungryModule.GAME_FRENZY, "test"
 	)
 
 	_check(changed.ok, "the server changes to frenzy", str(changed.error))
 
-	await _until(func() -> bool: return _world() != before)
+	var replaced := await _until(func() -> bool:
+		var now := _world()
+		return now != null and now.get_instance_id() != before_id
+	)
+
+	_check(replaced, "and the world is replaced rather than merely present")
+
+	# This is the check that fails if somebody captures the world again. It asserts
+	# the thing that made the capture wrong: the old world really is freed, not
+	# unregistered and left alive. If that ever stops being true this fails, and
+	# whoever is here reads the comment above before reaching for `before`.
+	_check(
+		instance_from_id(before_id) == null,
+		"and the old one is freed, not left alive and unregistered"
+	)
 
 	var after := _world()
 
-	_check(after != null and after != before, "a new world is registered")
+	_check(
+		after != null and after.get_instance_id() != before_id,
+		"a new world is registered"
+	)
 	_check(
 		after != null and String(after.preset.id) == "frenzy",
 		"under the frenzy preset"
