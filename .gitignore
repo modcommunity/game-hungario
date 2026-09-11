@@ -41,3 +41,18 @@ export_presets.cfg
 .DS_Store
 Thumbs.db
 /addons/dot_spectate
+/addons/dot_settings
+/addons/dot_audio
+/addons/dot_fx
+/addons/dot_console
+/addons/dot_peer_to_peer
+
+# Rendered by tools/screenshot_menus.sh, for looking at rather than for keeping.
+/screenshots/
+/addons/dot_physics
+/addons/dot_spawn
+/addons/dot_player
+/addons/dot_player_controller
+/addons/dot_player_char
+/addons/dot_player_class
+/addons/dot_team

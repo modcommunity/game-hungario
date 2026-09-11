@@ -23,7 +23,7 @@ each run their addons together and prove the seams; neither has a client a perso
 down at. This one has a launcher, a camera, a renderer, a HUD, chat, menus, sound and a
 touch path, and the whole of it runs against a real `DotServer` over a real socket.
 
-**It joins the two halves of the platform.** dot-fps-controller, dot-combat, dot-loadout
+**It joins the two halves of the platform.** dot-player-controller, dot-combat, dot-loadout
 and dot-match are the gameplay half; dot-auth, dot-user, dot-user-avatar and dot-platform
 are the identity half. Before this they were exercised separately. Here a guest signs on
 through dot-platform, gets a profile and an avatar, chooses a loadout the server validates
@@ -627,9 +627,10 @@ godot --headless --path . res://examples/headless_net.tscn     # 126 — the net
 godot --headless --path . res://examples/dedicated.tscn        # 158 — a real DotServer
 godot --headless --path . res://examples/sandbox.tscn          #  72 — two real clients
 godot --headless --path . res://examples/content.tscn          #  45 — the cloud path
+godot --headless --path . res://examples/headless_presentation.tscn  # 33 — the client half
 ```
 
-599 checks. Add `-- --verbose` to `dedicated`, `sandbox` or `content` when one fails and
+642 checks. Add `-- --verbose` to `dedicated`, `sandbox` or `content` when one fails and
 the reason is in a log line rather than in the assertion.
 
 **Run `headless_round` after any change to dot-2d** and **`headless_net` after any change
@@ -708,6 +709,67 @@ test that eventually **fails** for a reason that has nothing to do with the code
 whose failure points at the achievements system rather than at the suite. The key is
 now unique per run; clearing the directory instead would be a suite deleting a player's
 progress, which is the one thing that system must never do by accident.
+
+## The presentation layer, and what it deliberately does not duplicate
+
+`HungryPresentation` holds dot-settings, dot-audio, dot-fx and dot-console — and the
+interesting part of this game's integration is what it **refuses to replace**.
+
+**dot-audio does not replace `HungrySound`.** This game bakes its whole bank
+arithmetically at boot: ten cues, 22 kHz, no files, byte-identical everywhere. That is the
+best thing about its audio and throwing it away for an addon that names files would be a
+strict downgrade. So `HungrySoundSink` is dot-audio's sink and the generation stays, and
+what the addon adds is the half that was never there: a catalogue, per-id concurrency caps,
+cooldowns, a distance cull, priorities, a proper `linear_to_db` volume curve, and a manager
+that says **why** a sound was refused.
+
+That is the first thing in the family to use `DotAudioSink` for what the seam is actually
+for — and it found a real gap in the addon on the first run: **a def with no file was
+refused**, because the addon assumed every sound is a path. `DotAudioDef.generated` exists
+because of this game.
+
+**dot-settings does not replace `HungryConfig`.** `DotSettingsSchema.from_config` reads it,
+so there is still one list: the ranges come from the `@export_range` hints, and the only
+thing added is the part a config genuinely cannot say, which is **the scope** — which keys
+follow a person between games and which stay with the machine. `apply_to_config` is the way
+back, because the config is what the rest of the client reads.
+
+Both are the same decision twice: **two copies of one list is this family's most repeated
+bug**, and an addon that makes you write a second one has cost you something.
+
+### The bug it found, which is the family's own shape again
+
+**A saved volume never reached the sound bank.** Everything in the layer reacts to
+`changed`, and a value loaded from disk **has not changed** — so a player who set the
+volume to -30, quit and came back got -8, with the config correct the whole time. It is "a
+value produced correctly and consumed by nothing" with the symptom pointing at the
+consumer. `apply_all()` pushes every current value once after the layer is built, and the
+same call was added to the lobby's, the arena's, g2gfast's and the playground's before any
+of them could grow it.
+
+## A private arena whose host may leave
+
+`HungryParty` disagrees with `game-arena` on one axis and agrees on the other, and both
+halves follow from what kind of game this is.
+
+**Migration is on**, where a round-based deathmatch's is off: hungario is a *continuous*
+arena — people join, grow, burst and come back, and there is no round boundary to be in the
+middle of — so a host leaving should cost a moment rather than the session.
+
+**Reporting is refused**, exactly as the arena refuses it. This game files to dot-stats and
+unlocks dot-achievements, and a peer-to-peer host can lie about how much they ate. A host
+who can cheat and a persistent number are one exploit rather than two features, and
+`reporting_allowed()` is the one place that is asked.
+
+## The menus, rendered and looked at
+
+`tools/screenshot_menus.sh` renders the pause menu, the loadout picker, the scoreboard and the rebinder. This game has the most screens of any in the family and had no screenshot tool at all.
+
+What it found was in dot-ui rather than here, and it applied to this game's browser and HUD leaderboard as well as its scoreboard: **a column declared with no `width` collapsed to nothing**, so the mass, the pieces, the rank and the ping had never been drawn — one column, with the data correct and `describe()` agreeing. And underneath that, **`DotTableView` honoured no width at all**: it used a `GridContainer`, which gives every column the same width whatever ratio a cell asks for, so the `3.0` on the Monster column was inert and long names were clipped in a table with empty space in it.
+
+The rank column is `0.4` here now. An omitted width is an equal share — which is the right default and the fix for the collapse — so a single-digit `#` would otherwise be given as much room as the mass, and the table opens with a sixth of itself blank. Only a picture says so.
+
+**The tool seeds its monsters on the first frame, not in `_initialize`.** `HungryWorld.setup()` adds its `DotMatch` as a child and a node added from `SceneTree._initialize` does not get `_ready` until the first frame, so the scoreboard does not exist yet and `add_player` dies on it with "Nonexistent function 'join' in base 'Nil'" — which reads like a missing method rather than like a node that has not started. game-simple-lobby's tool carries the same warning and this hit it anyway.
 
 ## Things deliberately not here
 

@@ -13,9 +13,10 @@ extends Node
 ##   acquires at one threshold, drops at a weaker one, and keeps chasing for a grace period
 ##   measured from the **last sighting**.
 ## - **dot-npc-ai** is the decision: a state machine, a wander that wanders rather than
-##   re-rolling, separation so a pack at one player does not become a tower, and Quake III's
-##   characteristics — a reaction time, so a hunter cannot commit on the tick it first sees
-##   you. There is no difficulty setting; the character is the difficulty, per hunter.
+##   re-rolling, separation so a pack at one player does not become a tower, and the arena
+##   shooters' characteristics — a reaction time, so a hunter cannot commit on the tick
+##   it first sees you. There is no difficulty setting; the character is the difficulty,
+##   per hunter.
 ## - **dot-npc-ai-director** decides *when*. Hunters do not arrive on a timer: the director
 ##   builds up, sustains, fades and relaxes against an estimate of what the players are
 ##   experiencing, which in this game is being chased rather than being shot.
@@ -248,7 +249,7 @@ func setup(p_authoritative: bool, p_world: HungryWorld) -> DotResult:
 	return _build_director()
 
 
-## The director, and the one number in it that is this game rather than Left 4 Dead.
+## The director, and the one number in it that is this game rather than the genre.
 func _build_director() -> DotResult:
 	var rules := DotNpcDirectorRules.new()
 	# An arena is not a corridor: there is no critical path to spawn ahead along, and

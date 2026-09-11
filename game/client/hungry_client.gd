@@ -60,6 +60,10 @@ var voice: HungryVoice = null
 var hunters: HungryHunters = null
 var hazards: HungryHazards = null
 var sound: HungrySound = null
+
+## Settings, audio, effects and the console. `sound` above is still what makes the noise;
+## this is what decides whether it should, how many at once and how loud.
+var presentation: HungryPresentation = null
 var screens: DotScreenStack = null
 var ui_config: DotUiConfig = null
 
@@ -281,6 +285,12 @@ func _build_view() -> void:
 	sound = HungrySound.make()
 	add_child(sound)
 
+	# The presentation layer, after the bank exists so the sink has something behind it.
+	# `HungrySound` is still what makes the noise; dot-audio is what decides whether it
+	# should, how many at once, how far away it stops mattering and how loud -- none of
+	# which this game had, and all of which a bank called directly has no way to acquire.
+	_build_presentation()
+
 	# The world's own signals fire only where this process is the authority, which for a
 	# netted client is nowhere. Eating is therefore *watched* rather than listened for —
 	# see [method _watch_mass] — and these three are the ones an offline game needs and a
@@ -288,6 +298,23 @@ func _build_view() -> void:
 	world.projectile_thrown.connect(_on_projectile_thrown)
 	world.player_died.connect(_on_player_died)
 	world.monster_burst.connect(_on_monster_burst)
+
+
+## Settings, audio, effects and the console, over the config and the bank this game has.
+func _build_presentation() -> void:
+	presentation = HungryPresentation.new()
+	presentation.name = "Presentation"
+	presentation.client = self
+	presentation.sound = sound
+	# The SAME config object the rest of the client reads, not a copy. dot-settings owns
+	# the persistence and the scopes; `HungryConfig` stays the declaration, so there is
+	# one list rather than two that drift.
+	presentation.config = settings if settings != null else HungryConfig.load_saved()
+	add_child(presentation)
+	DotLog.result(CHANNEL, "the presentation layer", presentation.setup())
+
+	if settings == null:
+		settings = presentation.config
 
 
 func _build_ui() -> void:
@@ -431,6 +458,13 @@ func _process(delta: float) -> void:
 
 	_watch_mass()
 
+	if presentation != null:
+		# Once a frame, with where the camera is. dot-audio culls by distance from the
+		# listener and dot-fx ages what it spawned, and neither ticks itself: `_process`
+		# does not run while a tree is paused, and a pause menu is exactly when nothing
+		# finishes.
+		presentation.present(delta, _watched_centre())
+
 	_board_accum += delta
 
 	if _board_accum >= BOARD_INTERVAL_SEC:
@@ -444,6 +478,16 @@ func _process(delta: float) -> void:
 
 		if board != null and screens.is_open(&"scoreboard"):
 			board.refresh()
+
+
+## Where the camera is looking, which is where the listener is.
+##
+## The **watched** monster rather than the local one: a dead player is watching whoever ate
+## them, and a listener left at the corpse would hear a patch of arena nobody is in — which
+## is the same bug `HungrySpectate` exists to fix for the camera, one sense over.
+func _watched_centre() -> Vector2:
+	var monster := _watched()
+	return monster.centre() if monster != null else Vector2.ZERO
 
 
 # --- Offline ---------------------------------------------------------------
@@ -550,20 +594,28 @@ func _on_cue(kind: int, data: Dictionary) -> void:
 	# players is a wall of noise that says nothing about your own game.
 	var me := _local_player()
 
+	if presentation == null:
+		return
+
 	match kind:
 		HungryEvents.Kind.DIED:
 			if int(data.get("first", 0)) == me:
-				sound.play(HungrySound.Cue.DIE)
+				presentation.on_died()
 				_watching = int(data.get("second", 0))
 			elif int(data.get("second", 0)) == me:
-				sound.play(HungrySound.Cue.DEVOUR)
+				presentation.on_devour()
 
 		HungryEvents.Kind.BURST:
-			if int(data.get("first", 0)) == me or int(data.get("second", 0)) == me:
-				sound.play(HungrySound.Cue.BURST)
+			var first := int(data.get("first", 0))
+			if first == me or int(data.get("second", 0)) == me:
+				var burst_monster := world.monster_for(first) if world != null else null
+				presentation.on_burst(
+					burst_monster.centre() if burst_monster != null else Vector2.ZERO,
+					first == me
+				)
 
 		HungryEvents.Kind.THROW:
-			sound.play(HungrySound.Cue.THROW)
+			presentation.on_throw()
 
 
 ## Turns "I got bigger" into a noise.
@@ -600,29 +652,33 @@ func _watch_mass() -> void:
 	var gained := mass - _last_mass
 	_last_mass = mass
 
+	# Through the presentation layer rather than straight at the bank. `HungrySound` still
+	# makes the noise -- it is dot-audio's sink here -- but the cap, the cooldown and the
+	# distance cull are the addon's, and a bank called directly is a bank with none of
+	# them: a monster in a dense field eats several times a second and nine blips in one
+	# frame is a click.
+	var at := monster.centre()
+
 	if gained >= HungryContent.FRUIT_MASS * 0.8:
-		sound.play(HungrySound.Cue.FRUIT)
+		presentation.on_fruit_eaten(at)
 	elif gained >= 0.5:
 		# Pitched by how much it was worth, through the same curve the food tiers use, so
 		# a haunch and a crumb are the same blip an octave apart.
-		sound.play(
-			HungrySound.Cue.EAT,
-			HungrySound.food_pitch(HungryContent.food_tier(
-				clampf(gained / 30.0, 0.0, 0.999)
-			))
+		presentation.on_food_eaten(
+			at, HungryContent.food_tier(clampf(gained / 30.0, 0.0, 0.999))
 		)
 
 	var carried := monster.carried.size()
 
 	if carried > _last_carried:
-		sound.play(HungrySound.Cue.PICKUP)
+		presentation.on_pickup()
 
 	_last_carried = carried
 
 
 func _on_projectile_thrown(shot: HungryProjectile) -> void:
-	if sound != null and shot.thrower_id == _local_player():
-		sound.play(HungrySound.Cue.THROW)
+	if presentation != null and shot.thrower_id == _local_player():
+		presentation.on_throw()
 
 
 func _on_player_died(player_id: int, killer_id: int) -> void:
@@ -630,17 +686,20 @@ func _on_player_died(player_id: int, killer_id: int) -> void:
 		return
 
 	if player_id == _local_player():
-		sound.play(HungrySound.Cue.DIE)
+		presentation.on_died()
 		_watching = killer_id
 	elif killer_id == _local_player():
-		sound.play(HungrySound.Cue.DEVOUR)
+		presentation.on_devour()
 
 
 func _on_monster_burst(player_id: int, by_player: int, _count: int) -> void:
-	if sound != null and (
-		player_id == _local_player() or by_player == _local_player()
-	):
-		sound.play(HungrySound.Cue.BURST)
+	if presentation == null:
+		return
+	var mine := player_id == _local_player()
+	if not mine and by_player != _local_player():
+		return
+	var monster := world.monster_for(player_id) if world != null else null
+	presentation.on_burst(monster.centre() if monster != null else Vector2.ZERO, mine)
 
 
 func _on_roster_changed(player_id: int) -> void:

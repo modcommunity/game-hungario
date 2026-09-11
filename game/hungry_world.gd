@@ -107,6 +107,13 @@ var damage_gate: Callable = Callable()
 ## client alike, because both ends need the camera to point somewhere.
 var spectate: HungrySpectate = null
 
+## Who is in the session, which side, which trait, where they appear, and the physics.
+##
+## [b]Built last and binds to everything else.[/b] It adds no authority: the monster is
+## still dot-2d's and the round is still dot-match's. What it does is keep one set of
+## records in step with them. See [HungryPlayerStack].
+var player_stack: HungryPlayerStack = null
+
 ## player id -> [HungryMonster].
 var _monsters: Dictionary = {}
 
@@ -209,6 +216,8 @@ func setup() -> DotResult:
 		spectate.queue_free()
 		spectate = null
 
+	_build_player_stack()
+
 	if register_service:
 		_registered_name = (
 			DotRegistry.scoped_name(SERVICE, service_scope)
@@ -218,6 +227,29 @@ func setup() -> DotResult:
 		DotRegistry.register(_registered_name, self)
 
 	return DotResult.success(null)
+
+
+## Stands up the player-facing addons and binds them to this world.
+##
+## Last, because it reads the match and the field, and a stack built before either binds
+## to nothing and reports success.
+func _build_player_stack() -> void:
+	player_stack = HungryPlayerStack.new()
+	player_stack.name = "PlayerStack"
+	# A client mirrors what the server decided. It never applies a physics profile: its
+	# tick rate is the server's, and a client counting at a different one would predict
+	# a monster's mass against a schedule the server does not use.
+	player_stack.apply_physics = is_authority
+	player_stack.register_service = register_service
+	add_child(player_stack)
+
+	var res := player_stack.setup(self)
+
+	if not res.ok:
+		DotLog.warn(CHANNEL, "the player stack is off", {"why": res.error.message})
+		remove_child(player_stack)
+		player_stack.queue_free()
+		player_stack = null
 
 
 func _build_match() -> DotResult:
@@ -402,6 +434,9 @@ func add_player(id: int, display_name: String) -> DotResult:
 		_monsters.erase(id)
 		return added
 
+	if player_stack != null:
+		player_stack.add_player(id, display_name)
+
 	return DotResult.success(monster)
 
 
@@ -413,6 +448,11 @@ func remove_player(id: int) -> void:
 
 	for piece in monster.pieces.duplicate():
 		_destroy_piece(piece)
+
+	if player_stack != null:
+		# Before dot-match forgets them: the stack reads the match for the records it
+		# files, and after `remove_player` there is nothing there to read.
+		player_stack.drop_player(id)
 
 	match_node.remove_player(str(id))
 	_monsters.erase(id)
@@ -693,6 +733,9 @@ func tick(commands: Dictionary = {}) -> void:
 	# the round first would have taken them all away.
 	if spectate != null:
 		spectate.tick(delta)
+
+	if player_stack != null:
+		player_stack.tick(_tick)
 
 	match_node.tick(_tick)
 

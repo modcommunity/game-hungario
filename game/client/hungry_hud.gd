@@ -159,7 +159,7 @@ func build(p_world: HungryWorld, p_bridge: HungryNetBridge, p_player_id: int) ->
 	leaderboard.offset_bottom = 280.0
 	add_child(leaderboard)
 	leaderboard.set_columns([
-		{"key": &"rank", "title": "#", "align": HORIZONTAL_ALIGNMENT_RIGHT},
+		{"key": &"rank", "title": "#", "width": 0.4, "align": HORIZONTAL_ALIGNMENT_RIGHT},
 		{"key": &"name", "title": "Monster", "width": 3.0},
 		{"key": &"mass", "title": "Mass", "align": HORIZONTAL_ALIGNMENT_RIGHT},
 	])

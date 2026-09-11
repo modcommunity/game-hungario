@@ -231,8 +231,12 @@ class ScoreboardScreen extends DotScreen:
 		table = DotTableView.new()
 		table.max_rows = 20
 		container.add_child(table)
+		# An explicit width on the narrow ones. An omitted width is an EQUAL share -- which
+		# is right, and is the fix for a column that used to collapse to nothing -- so a
+		# single-digit rank would otherwise be given as much room as the mass and the
+		# pieces, and the table opens with a sixth of itself blank. Only a picture says so.
 		table.set_columns([
-			{"key": &"rank", "title": "#", "align": HORIZONTAL_ALIGNMENT_RIGHT},
+			{"key": &"rank", "title": "#", "width": 0.4, "align": HORIZONTAL_ALIGNMENT_RIGHT},
 			{"key": &"name", "title": "Monster", "width": 3.0},
 			{"key": &"mass", "title": "Mass", "align": HORIZONTAL_ALIGNMENT_RIGHT},
 			{"key": &"pieces", "title": "Pieces", "align": HORIZONTAL_ALIGNMENT_RIGHT},

@@ -135,8 +135,8 @@ func _flee(ctx: DotNpcAiContext) -> void:
 ##
 ## [b]Behind [method has_reacted], which is the gate every "act on what you see" branch
 ## belongs behind.[/b] An NPC that turns and commits on the tick it first perceives
-## somebody is one no player can ever surprise, and Quake III's characteristics table
-## exists because that is the difference between a bot and an opponent.
+## somebody is one no player can ever surprise, and the arena shooters' characteristics
+## table exists because that is the difference between a bot and an opponent.
 func _sees_prey(_ctx: DotNpcAiContext) -> bool:
 	if not npc.has_target() or not has_reacted():
 		return false
