@@ -14,7 +14,7 @@ extends Node
 ##
 ## Exits non-zero on any failure.
 
-const CHECKS := 33
+const CHECKS := 48
 
 var _passed := 0
 var _failed := 0
@@ -40,6 +40,7 @@ func _run() -> void:
 	_test_effects()
 	_test_console()
 	_test_party()
+	_test_chat_box()
 
 	print("")
 	_check(
@@ -343,3 +344,80 @@ func _check(condition: bool, what: String, detail: String = "") -> bool:
 		print("  FAIL  %s" % what)
 		_failures.append(what if detail == "" else "%s — %s" % [what, detail])
 	return condition
+
+
+func _test_chat_box() -> void:
+	_section("A chat box that is not a screen, and the three answers to whether it is drawn")
+
+	var p := _make()
+	var window := p.chat_window
+
+	_check(window != null, "the client builds a chat box at all")
+
+	if window == null:
+		_done()
+		return
+
+	_check(
+		DotInputBinding.describe_action(window.open_action) == "Y",
+		"opened by Y, which is where this genre has put it for twenty-five years"
+	)
+
+	# The channels are the server's own definitions rather than a second list.
+	var ids := PackedStringArray()
+	for entry in window.channels:
+		ids.append(String(entry.get("id", "")))
+	_check(
+		Array(ids).has(String(HungryServices.CHANNEL_ALL))
+			and Array(ids).has(String(HungryServices.CHANNEL_NEAR)),
+		"offering the channels the server actually routes (%s)" % [ids]
+	)
+
+	_check(window.enabled, "drawn by default, on a server that said nothing")
+
+	p.set_chat_relayed(true)
+	_check(not window.enabled, "auto takes it away when a relay is carrying chat")
+
+	window.add_said("someone", "but you can still hear this")
+	_check(
+		window.line_count() > 0,
+		"and the log still draws what other people said",
+		"off means you type somewhere else, never that you are out of the conversation"
+	)
+
+	p.settings.set_value(&"chat_window", &"on")
+	_check(window.enabled, "on keeps the box even with a relay running: both, if you want")
+
+	p.settings.set_value(&"chat_window", &"off")
+	_check(not window.enabled, "off never draws it")
+
+	p.settings.set_value(&"chat_window", &"auto")
+	p.set_chat_relayed(false)
+	_check(window.enabled, "and auto gives it back")
+
+	# [b]The binding is stored beside the config, never in it.[/b] A `DotConfig` is layered
+	# from a file, the environment and argv, and a chat key arriving from a server's
+	# command line would rebind every player on it.
+	_check(
+		not p.config.has_key("chat_open_key"),
+		"the chat key is NOT a config value a server could set"
+	)
+
+	p.settings.set_value(&"chat_open_key", "T")
+	_check(
+		DotInputBinding.describe_action(window.open_action) == "T",
+		"rebinding through the settings document moves the key"
+	)
+	_check(
+		InputMap.action_get_events(window.open_action).size() == 1,
+		"and leaves ONE binding, not the old one as well"
+	)
+
+	# Split, throw, boost and eject are all keys here: "gg boost" splits you twice.
+	_check(not p.swallows_input(), "a closed box does not swallow input")
+	window.open()
+	_check(p.swallows_input(), "an open one does, so a typed key is not a split")
+	window.close()
+	_check(not p.swallows_input(), "and gives it back when it closes")
+
+	_done()

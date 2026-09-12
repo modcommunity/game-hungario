@@ -494,6 +494,16 @@ func _on_spawned(npc: DotNpcInstance) -> void:
 	# would be a brain that cannot be delivered in a pack.
 	npc.meta["hunters"] = self
 
+	# [b]On the layout's `enemy` layer.[/b] `top_down_2d`'s `enemy` row is
+	# [world, one_way, player, enemy, prop, projectile]; the body arrives on Godot's
+	# default layer 1 masking layer 1, which makes a hunter solid against nothing it is
+	# supposed to be solid against and puts it on the layer the layout calls `world`.
+	# Most of this game is analytic — `Dot2DArena` is not a physics space — so a hunter
+	# body and a hazard body are nearly all there is here to classify, which is why
+	# getting the two of them right is cheap.
+	if world != null and world.player_stack != null and npc.node != null:
+		var _put := world.player_stack.classify(npc.node, &"enemy")
+
 	_wire_of_instance[npc.instance_id] = wire_id
 	_instance_of_wire[wire_id] = npc.instance_id
 	_hunters[wire_id] = {

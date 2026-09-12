@@ -1277,15 +1277,16 @@ func _register_games() -> void:
 # --- Console ---------------------------------------------------------------
 
 func _register_console() -> void:
-	# **`.with_chat()` is what lets a player or an admin type these.**
-	# `DotConCommand.chat_allowed` defaults to false and dot-server's chat manager —
-	# which is what actually handles a `!command` — dispatches with `Source.CHAT`, so an
-	# unmarked command answers "cannot be run from chat" however many flags you hold.
+	# **`.with_chat()` says a command is typable whatever the server's default is.**
+	# `sv_chat_commands` ships on, so an unmarked command is reachable from chat too and
+	# the flag it carries is what decides who may run it — the same check, on the same
+	# line, for chat, RCON and the terminal. What marking buys is survival: these stay
+	# typable on a server whose operator turned that default off, because they are what
+	# a player is expected to type.
 	#
 	# Marked here are the player-facing ones and the moderation ones dot-server marks on
-	# its own equivalents. The cheats and the ones that change the world stay
-	# console-only, for the reason game-g2gfast's suite asserts about its map command:
-	# a thing that ends everybody's round is not a thing you type mid-round.
+	# its own equivalents. A command whose answer is about the operation rather than about
+	# who is asking says so with `.no_chat()`, the way dot-server's `quit` does.
 	add_command(
 		"hungry_status", _cmd_status, "Show the world", DotAdminFlags.GENERIC
 	).with_chat()

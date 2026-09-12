@@ -622,12 +622,13 @@ find . -name '*.gd' -not -path './.godot/*' -not -path './addons/*' | while read
     godot --headless --path . --check-only --script "res://${f#./}"
 done
 
-godot --headless --path . res://examples/headless_round.tscn   # 198 — the game
+godot --headless --path . res://examples/headless_round.tscn   # 208 — the game
+godot --headless --path . res://examples/headless_stack.tscn   #  24 checks
 godot --headless --path . res://examples/headless_net.tscn     # 126 — the netcode
 godot --headless --path . res://examples/dedicated.tscn        # 158 — a real DotServer
-godot --headless --path . res://examples/sandbox.tscn          #  72 — two real clients
+godot --headless --path . res://examples/sandbox.tscn          #  74 — two real clients
 godot --headless --path . res://examples/content.tscn          #  45 — the cloud path
-godot --headless --path . res://examples/headless_presentation.tscn  # 33 — the client half
+godot --headless --path . res://examples/headless_presentation.tscn  # 48 — the client half
 ```
 
 642 checks. Add `-- --verbose` to `dedicated`, `sandbox` or `content` when one fails and
@@ -770,6 +771,24 @@ What it found was in dot-ui rather than here, and it applied to this game's brow
 The rank column is `0.4` here now. An omitted width is an equal share — which is the right default and the fix for the collapse — so a single-digit `#` would otherwise be given as much room as the mass, and the table opens with a sixth of itself blank. Only a picture says so.
 
 **The tool seeds its monsters on the first frame, not in `_initialize`.** `HungryWorld.setup()` adds its `DotMatch` as a child and a node added from `SceneTree._initialize` does not get `_ready` until the first frame, so the scoreboard does not exist yet and `add_player` dies on it with "Nonexistent function 'join' in base 'Nil'" — which reads like a missing method rather than like a node that has not started. game-simple-lobby's tool carries the same warning and this hit it anyway.
+
+## The chat screen became a chat box, and five games stopped having five of them
+
+This game already had somewhere to type: `HungryMenus.ChatScreen`, a modal `DotScreen` on Enter with one `LineEdit` in it. It worked. It was also the only one of its kind in the family — no log, no channels, and no way to tell whether anything else was carrying the conversation — while four other games here had nothing at all. Five games with five chat boxes is this tree's most expensive shape, so the screen is gone and `HungryPresentation` builds dot-ui's `DotChatWindow` instead. The stack registers **five** screens now, not six, and `headless_round` asserts it.
+
+What a player loses is the Enter key, and it is one setting away.
+
+**Two lines moved rather than went.** The old handler released the voice gate before opening the box, because otherwise the key-up for the talk key lands in the chat box, the gate is never closed, and the player broadcasts whatever they say while typing. That is on `opened` now, where it fires however the box was opened rather than only from the key that used to open it. And `HungryInput.suspended` is set beside it: steering here is the mouse, so typing walks nobody anywhere — but split, throw, boost and eject are all keys, and a player typing "gg boost" splits twice and ejects their mass.
+
+**The three chat settings are added BESIDE the config rather than read out of it**, which is the one place this game departs from its own rule. Everything else in `HungryPresentation.settings` comes from `HungryConfig` through `DotSettingsSchema.from_config`, so tightening a range there tightens the slider, the console and the stored document at once. A `DotConfig` is also layered from a JSON file, the environment and the command line — and a keyboard binding has no business arriving from a server's argv. `HUNGRY_CHAT_OPEN_KEY=Q` in a container would rebind every player on it. `headless_presentation` asserts the key is *not* a config value.
+
+| | |
+| --- | --- |
+| `chat_window` | `auto` / `on` / `off`. `auto` hides the box on a server already carrying chat somewhere the player can see it; `on` draws it regardless; `off` never does. |
+| `chat_open_key` | `Y` by default. |
+| `chat_near_key` | `U` by default, and it opens the proximity channel. |
+
+`sandbox` is where the server's side of this is checked over a real socket: a joining client is told what is carrying chat before it has any line to draw, and the suite keeps that payload apart from the lines it asserts must never arrive twice.
 
 ## Things deliberately not here
 

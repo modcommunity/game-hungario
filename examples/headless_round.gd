@@ -1643,9 +1643,12 @@ func _test_interface() -> void:
 
 	var game_config := HungryConfig.new()
 	var pause := HungryMenus.install(stack, world, null, ui_config, game_config)
+	# Five, and it was six: chat left the stack when it became a `DotChatWindow`. A chat
+	# box is eight lines in a corner that has to leave the game visible behind it, which is
+	# a HUD widget rather than a modal screen.
 	_check(
-		stack.registered_ids().size() == 6,
-		"six screens register (%d)" % stack.registered_ids().size()
+		stack.registered_ids().size() == 5,
+		"five screens register (%d)" % stack.registered_ids().size()
 	)
 
 	# The loadout screen offers what the schema and this player's entitlements allow, and
@@ -1828,18 +1831,31 @@ func _test_interface() -> void:
 	_check(pause.blocks_input and pause.hides_below, "and does block, and hides the HUD")
 	stack.pop(&"pause")
 
-	# Chat is a screen for one reason: a chat box that let the movement keys through is a
-	# player who drives into a wall while typing.
-	var chat := stack.screen(&"chat") as HungryMenus.ChatScreen
-	var said := [""]
-	chat.submitted.connect(func(text: String) -> void: said[0] = text)
+	# [b]Chat is no longer a screen on this stack.[/b] It was a modal `DotScreen` on Enter
+	# with one line edit in it — the only chat box of its kind in the family, with no log,
+	# no channels and no way to know whether anything else was carrying the conversation.
+	# It is `DotChatWindow` now, tested in `headless_presentation` where the rest of the
+	# client's interface is.
+	_check(
+		stack.screen(&"chat") == null,
+		"chat is not a screen on the stack any more",
+		"two chat boxes in one game is the shape this tree pays most for"
+	)
 
-	_check(stack.push(&"chat").ok, "the chat line opens")
-	_check(chat.blocks_input, "and blocks input while it is open")
-	chat.line.text = "  well then  "
-	chat.line.text_submitted.emit(chat.line.text)
+	var chat := DotChatWindow.new()
+	chat.register_actions = false
+	add_child(chat)
+
+	var said := [""]
+	chat.submitted.connect(func(text: String, _c: StringName) -> void: said[0] = text)
+
+	chat.open()
+	_check(chat.is_open(), "the chat line opens")
+	chat.entry().text = "  well then  "
+	chat.entry().text_submitted.emit(chat.entry().text)
 	_check(said[0] == "well then", "and submits trimmed text (%s)" % said[0])
-	_check(not stack.is_open(&"chat"), "and closes itself")
+	_check(not chat.is_open(), "and closes itself")
+	chat.queue_free()
 
 	# The on-screen buttons. Forced on, because a headless run has no touchscreen and a
 	# control nothing exercises is a control that breaks quietly.

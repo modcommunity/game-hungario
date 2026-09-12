@@ -361,10 +361,7 @@ func _build_ui() -> void:
 
 	_apply_settings()
 
-	var chat_screen := screens.screen(&"chat") as HungryMenus.ChatScreen
-
-	if chat_screen != null:
-		chat_screen.submitted.connect(_on_say)
+	_wire_chat_window()
 
 	var loadout := screens.screen(&"loadout") as HungryMenus.LoadoutScreen
 
@@ -787,6 +784,12 @@ func _on_chat_message(message: DotChatMessage, channel_id: StringName) -> void:
 			"%s%s" % [prefix, message.text],
 			chan.colour if chan != null else Color(0.62, 0.78, 1.0)
 		)
+
+		var from_server := _chat_window()
+
+		if from_server != null:
+			from_server.add_text("%s%s" % [prefix, message.text], Color(0.80, 0.82, 0.86))
+
 		return
 
 	hud.chat({
@@ -794,10 +797,80 @@ func _on_chat_message(message: DotChatMessage, channel_id: StringName) -> void:
 		"text": message.text,
 	})
 
+	var window := _chat_window()
 
-func _on_say(text: String) -> void:
+	if window != null:
+		window.add_said(
+			"%s%s" % [prefix, message.sender_name],
+			message.text,
+			chan.colour if chan != null else Color(0.62, 0.78, 1.0)
+		)
+
+
+# --- Chat ------------------------------------------------------------------
+
+## The chat box, or null before the presentation layer exists.
+func _chat_window() -> DotChatWindow:
+	return presentation.chat_window if presentation != null else null
+
+
+## Joins the chat box to the three things it needs.
+##
+## [b]The microphone closes with the keyboard, and that line moved rather than went.[/b]
+## The old Enter handler released the talk gate before opening the box, because otherwise
+## the key-up for the talk key lands in the chat box, the gate is never closed, and the
+## player broadcasts whatever they say while typing. It belongs on `opened` now, where it
+## fires however the box was opened rather than only from the one key that used to open it.
+##
+## [b]The sampler is suspended too.[/b] Steering here is the mouse, so typing does not walk
+## anybody anywhere — but split, throw, boost and eject are keys, and "gg boost" splits you
+## twice and ejects your mass.
+func _wire_chat_window() -> void:
+	var window := _chat_window()
+
+	if window == null:
+		return
+
+	window.submitted.connect(_on_chat_submitted)
+
+	window.opened.connect(func(_channel: StringName) -> void:
+		if voice != null:
+			voice.release()
+
+		if sampler != null:
+			sampler.suspended = true
+	)
+
+	window.closed.connect(func() -> void:
+		if sampler != null:
+			sampler.suspended = false
+	)
+
+	var client_link := DotRegistry.get_service(&"dot_client_link")
+
+	if client_link != null and client_link.has_signal("chat_received"):
+		client_link.connect("chat_received", _on_server_chat_state)
+
+
+## dot-server's chat payload, read ONLY for what is carrying the conversation.
+##
+## This game routes its lines over its own wire, so drawing them here as well would be the
+## same line twice. The state payload has nowhere else to arrive.
+func _on_server_chat_state(payload: Dictionary) -> void:
+	if str(payload.get("kind", "")) != "state":
+		return
+
+	if presentation != null:
+		presentation.set_chat_relayed(bool(payload.get("relay", false)))
+
+
+func _on_chat_submitted(text: String, channel: StringName) -> void:
+	_on_say(text, channel)
+
+
+func _on_say(text: String, channel: StringName = HungryServices.CHANNEL_ALL) -> void:
 	if bridge != null and not bridge.net.is_server:
-		bridge.say(HungryServices.CHANNEL_ALL, text)
+		bridge.say(channel, text)
 	elif hud != null:
 		hud.say("(offline) %s" % text, Color(0.6, 0.62, 0.66))
 
@@ -871,18 +944,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if screens == null or not event.is_pressed() or event.is_echo():
-		return
-
-	if event.is_action_pressed(&"ui_text_newline") or _is_key(event, KEY_ENTER):
-		if not screens.is_open(&"chat"):
-			# The microphone closes with the keyboard. Otherwise the key-up for the talk
-			# key lands in the chat box, the gate is never closed, and the player
-			# broadcasts whatever they say while typing.
-			if voice != null:
-				voice.release()
-
-			screens.push(&"chat")
-			get_viewport().set_input_as_handled()
 		return
 
 	if _is_key(event, KEY_TAB):

@@ -55,6 +55,15 @@ var _heard: Array[DotChatMessage] = []
 ## prevent and the one nobody would notice because the message still arrives.
 var _legacy_heard: Array[Dictionary] = []
 
+## The one thing dot-server's chat signal legitimately carries here.
+##
+## [b]Not a line, which is why it is kept apart from [member _legacy_heard].[/b]
+## [code]DotChatManager.greet[/code] sends `{kind: "state", relay: bool}` to a joining
+## client to say whether anything else is carrying the conversation. It has no text and
+## draws nothing; counting it as a delivered message would have made the check above read
+## as two paths for one line, which is the failure that check exists for.
+var _chat_state: Array[Dictionary] = []
+
 ## The second player. Built later, in its own subtree with its own MultiplayerAPI.
 var _other_side: Node = null
 var _other_link: DotClientLink = null
@@ -359,6 +368,10 @@ func _test_join() -> bool:
 	# game's own wire; a test that still listened there would pass on a server running the
 	# old path and fail on the one that ships.
 	_link.chat_received.connect(func(payload: Dictionary) -> void:
+		if str(payload.get("kind", "")) == "state":
+			_chat_state.append(payload)
+			return
+
 		_legacy_heard.append(payload)
 	)
 
@@ -623,6 +636,20 @@ func _test_chat() -> void:
 
 	var nearby := await _until(func() -> bool: return _heard.size() > near_before, 6.0)
 	_check(nearby, "a line on the proximity channel reaches somebody standing there")
+
+	# [b]And the one payload that legitimately comes down dot-server's chat signal.[/b]
+	# A joining client is told what is carrying the conversation before it has any line to
+	# draw, so it can decide whether to draw a chat box at all rather than drawing one and
+	# taking it away a moment later. This is the only place in the family where that is
+	# checked over a real socket with a real server at the other end.
+	_check(
+		_chat_state.size() >= 1,
+		"the server told the client what is carrying chat, on joining (%d)" % _chat_state.size()
+	)
+	_check(
+		_chat_state.is_empty() or not bool(_chat_state[0].get("relay", true)),
+		"and this one is carrying it nowhere else, which is the honest answer with no relay"
+	)
 
 	_check(
 		_legacy_heard.is_empty(),

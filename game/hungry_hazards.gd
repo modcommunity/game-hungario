@@ -177,6 +177,29 @@ func setup(p_authoritative: bool, p_world: HungryWorld) -> DotResult:
 
 	spawner.removed.connect(_on_removed)
 
+	# [b]On the layout's `hazard` layer.[/b] `top_down_2d` gives `hazard` the row
+	# [player] and marks it query-only, which is exactly what a spike or a crusher is:
+	# a volume a player is tested against and nothing else collides with. The body
+	# arrives on layer 1 masking layer 1 — the layer the layout calls `world` — so
+	# before this a hazard was, as far as the collision matrix went, a piece of floor.
+	spawner.spawned.connect(
+		func(prop: DotPropInstance) -> void:
+			if world == null or world.player_stack == null or prop.node == null:
+				return
+
+			var put := world.player_stack.classify(prop.node, &"hazard")
+
+			# [b]Reported, not discarded.[/b] `classify` fails for a layer the layout
+			# does not have, and the body then keeps Godot's default layer 1 — which
+			# this layout calls `world`, so the failure mode is a hazard that is a piece
+			# of floor. Swallowing the result is how that goes unnoticed; this game's own
+			# stack suite found it by asserting the layer exists.
+			if not put.ok:
+				DotLog.warn(CHANNEL, "a hazard was not classified", {
+					"why": put.error.message
+				})
+	)
+
 	return DotResult.success(null)
 
 

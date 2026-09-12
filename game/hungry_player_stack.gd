@@ -82,10 +82,18 @@ func _exit_tree() -> void:
 
 # --- Building ---------------------------------------------------------------
 
+## Builds the physics node, and applies the engine half of it only where that is wanted.
+##
+## [b]The LAYOUT is built on every instance, including a client that applies nothing.[/b]
+## This used to return before creating the node at all when `apply_physics` was off, which
+## left a client with no layout — and a collision layout is not a local preference, it is
+## the numbers written into `collision_layer` on nodes both ends build. A server that put
+## props on the prop bit while its clients left them on bit 0 would be two worlds with
+## different collision matrices, agreeing only because nothing had ever read the layout.
+##
+## What `apply_physics` still gates is `setup()`, which writes ProjectSettings: the tick
+## rate, gravity and damping. Those are the server's to decide.
 func _build_physics() -> DotResult:
-	if not apply_physics:
-		return DotResult.success(null)
-
 	physics = DotPhysicsWorld.new()
 	physics.name = "Physics"
 
@@ -104,6 +112,15 @@ func _build_physics() -> DotResult:
 	physics.register_service = false
 	physics.write_layer_names = false
 	add_child(physics)
+
+	# The layout alone, so `classify` answers on a client too.
+	var built := physics.layout.build()
+
+	if not built.ok:
+		return built.wrap("The collision layout")
+
+	if not apply_physics:
+		return DotResult.success(null)
 
 	return physics.setup().wrap("hungario's physics profile")
 
@@ -190,15 +207,23 @@ func _trait_catalogue() -> DotPlayerClassCatalogue:
 	# Read off HungryContent.TRAIT_IDS rather than listed here. A trait added to the
 	# game and forgotten in this file would be a trait a player can hold and the class
 	# manager refuses, which presents as "my perk does nothing" on one server only.
-	var speeds := {
-		HungryContent.TRAIT_NIMBLE: 1.15,
-		HungryContent.TRAIT_STURDY: 0.9,
-		HungryContent.TRAIT_GREEDY: 1.0,
-	}
-
+	#
+	# [b]And the NUMBERS come from there too, which they did not.[/b] This carried its own
+	# `{nimble: 1.15, sturdy: 0.9}` while `HungryContent.TRAIT_SPEED` is `[1.08, 0.95, …]`
+	# and `HungryMonster.speed_multiplier` reads the latter — so the class document a
+	# server validates, a class screen draws and the wire carries advertised a nimble
+	# monster as 15% faster while the simulation ran it at 8%. Two copies of one table,
+	# already disagreeing, and nothing could report it: both numbers are valid speeds and
+	# only one of them is ever simulated.
 	for trait_id in HungryContent.TRAIT_IDS:
-		var def := DotPlayerClassDef.make(trait_id, 100.0, float(speeds.get(trait_id, 1.0)))
+		var def := DotPlayerClassDef.make(
+			trait_id, 100.0, HungryContent.trait_speed(trait_id)
+		)
 		def.description = "A hungario trait."
+		# The mass ratio the trait actually carries, so the document is the whole trait
+		# rather than the half of it that happened to fit `make`.
+		def.mass = HungryContent.trait_mass(trait_id) * 100.0
+		def.attributes = {"food_scale": HungryContent.trait_food(trait_id)}
 		cat.classes.append(def)
 
 	cat.default_class = HungryContent.TRAIT_NIMBLE
@@ -226,8 +251,19 @@ func _build_spawns() -> void:
 	# to somebody.[/b] There are no sides, so the enemy list is the whole field — which
 	# is the honest answer here and is why the selector is asked for distance at all.
 	spawns.enemies_fn = _other_positions
+	# [b]The rule `_safe_spawn` was applying by hand.[/b] Distance alone is the wrong
+	# question here: what kills a new monster is not somebody near, it is somebody near
+	# and BIGGER, and a small player standing on the best cell is no danger at all. The
+	# scoring cannot express that — it is a mass ratio, not a metre — so it is a
+	# condition, which is a veto rather than a penalty and is what dot-spawn's own
+	# documentation says a distance that is death rather than a bad choice should be.
+	var safety := SiteIsNotDeadly.new()
+	safety.danger_fn = _bigger_monster_near
+	spawns.conditions = [safety]
+	spawns.rules.protection_sec = 0.0
 	add_child(spawns)
 
+	refresh_spawn_rules()
 	refresh_spawns()
 
 
@@ -329,6 +365,37 @@ func tick(current_tick: int) -> void:
 
 # --- Reading ----------------------------------------------------------------
 
+## Opens the protection window to the match's own number.
+##
+## [b]One duration, two records.[/b] `HungryWorld._spawn_monster` applies
+## `FLAG_PROTECTED` until `match_node.spawn_protection_ticks()`, and the ledger is granted
+## for `protection_sec` inside [method DotSpawnDirector.choose]. Reading the same number
+## rather than writing a second one is what stops the flag and the ledger disagreeing
+## about when somebody stopped being safe.
+func refresh_spawn_rules() -> void:
+	if spawns == null or world == null or world.match_node == null:
+		return
+
+	spawns.rules.protection_sec = world.match_node.rules.spawn_protection_sec
+	# Off for game-arena's reason: only one of the two records can be revoked, and a
+	# protection that ended for one gate and not the other is worse than either answer.
+	spawns.rules.protection_breaks_on_attack = false
+
+
+## Whether spawn protection should stop [param attacker] eating [param victim].
+##
+## Hungario does not route bites through dot-combat, so this is asked by
+## `HungryWorld.can_eat` rather than by a damage resolver — but it is the same question
+## and the same ledger, which is the point of it being on the stack rather than inline.
+func blocks_damage(
+	attacker_key: String, victim_key: String, tick: int, world_damage: bool = false
+) -> bool:
+	if spawns == null or spawns.protection == null:
+		return false
+
+	return spawns.protection.blocks(attacker_key, victim_key, tick, world_damage)
+
+
 ## Where a monster should appear, scored by how far it is from everybody else.
 func choose_spawn(id: int) -> DotResult:
 	var key := str(id)
@@ -342,6 +409,78 @@ func choose_spawn(id: int) -> DotResult:
 ## The body metrics for a monster, in pixels.
 func character() -> DotPlayerCharDef:
 	return characters.fallback_for() if characters != null else null
+
+
+
+## The dot-spectate team number for [param key], derived from the side they are on.
+##
+## [b]An index, not a hash, and zero means "no side".[/b] dot-spectate keys teams by
+## [code]int[/code] and treats 0 as no team at all — two entities with no team are never
+## team-mates, so a free-for-all cannot accidentally become a truce. The playing sides
+## are numbered from 1 in the order the set declares them, which is the same rule
+## `DotTeamRoster._match_team_id` uses to push an assignment down into dot-match.
+##
+## Somebody unassigned, spectating, or not in the roster at all gets 0. That is the part
+## a hardcoded `return 1` got wrong: a spectator read as a team-mate of everybody.
+func team_index_of(key: String) -> int:
+	if teams == null:
+		return 0
+
+	var side := teams.team_of(key)
+
+	if side == &"" or not teams.teams.is_playing(side):
+		return 0
+
+	return teams.teams.playing_ids().find(side) + 1
+
+
+
+## Puts [param node] on the layout's [param layer_id] layer, with that layer's mask.
+##
+## [b]The half of dot-physics that was never used.[/b] The layout was assigned and its
+## layer names were written into ProjectSettings for the inspector to show — and every
+## body in this game stayed on Godot's default layer 1 with mask 1, so the inspector
+## labelled layers nothing followed. Naming a layer is only half of a layout.
+func classify(node: Node, layer_id: StringName) -> DotResult:
+	if physics == null or physics.layout == null:
+		return DotResult.fail(DotError.CODE_STATE, "No collision layout.")
+
+	return physics.classify(node, layer_id)
+
+
+## Puts every collision object under [param root] on [param layer_id]. Returns how many.
+##
+## One call rather than a call per body: the geometry is built by a class that describes
+## boxes, and a physics decision belongs here rather than inside that description. Nodes
+## that are not collision objects are skipped, so a whole scene can be handed in.
+func classify_tree(root: Node, layer_id: StringName) -> int:
+	if root == null or physics == null or physics.layout == null:
+		return 0
+
+	var done := 0
+
+	if root is CollisionObject3D or root is CollisionObject2D:
+		if classify(root, layer_id).ok:
+			done += 1
+
+	for child in root.get_children():
+		done += classify_tree(child, layer_id)
+
+	return done
+
+
+## The mask a player's movement sweeps against, out of the layout.
+##
+## [b]`DotFpsTunables.collision_mask` defaults to 1 and no game here had ever set it.[/b]
+## One is correct only while everything is on bit 0, which is the state a layout exists to
+## end — so the moment props moved to their own layer, a mask of 1 was a player who walks
+## through every crate in the map, and nothing would have said so: a sweep that hits
+## nothing is a sweep, not an error.
+func player_collision_mask() -> int:
+	if physics == null or physics.layout == null:
+		return 1
+
+	return physics.layout.collision_mask(&"player")
 
 
 func describe_lines() -> PackedStringArray:
@@ -372,6 +511,52 @@ func describe() -> Dictionary:
 func _alive_of_key(key: String) -> bool:
 	var monster := world.monster_for(int(key))
 	return monster != null and not monster.pieces.is_empty()
+
+
+## Whether anything big enough to eat a fresh monster is standing near [param at].
+##
+## The mass rule out of [method HungryWorld._safe_spawn], moved to where the director can
+## ask it. `START_MASS` is what a monster spawns at, so anything above it is a threat, and
+## seven start-radii is the reach the hand-written version used.
+func _bigger_monster_near(at: Vector2) -> bool:
+	if world == null or world.arena == null:
+		return false
+
+	var start_radius := world.tunables.mass_rules.radius_for(HungryContent.START_MASS)
+
+	for other_id in world.arena.overlapping(at, start_radius * 7.0):
+		if other_id >= HungryField.PIECE_ID_LIMIT:
+			continue
+
+		var piece: HungryPiece = world.piece_for(other_id)
+
+		if piece != null and piece.mass() > HungryContent.START_MASS:
+			return true
+
+	return false
+
+
+## Refuses a site with something big enough to eat you standing on it.
+##
+## [b]A condition rather than a score, because this is not a trade.[/b] There is a mass
+## at which a cell is not a worse spawn but a death, and no amount of distance scoring
+## anywhere else should be able to buy it back — which is `MinimumEnemyDistance`'s own
+## reasoning, in the units this game actually measures danger in.
+class SiteIsNotDeadly extends DotSpawnCondition:
+	## `func(at: Vector2) -> bool`. Left unset, nothing is deadly and every site passes.
+	var danger_fn: Callable = Callable()
+
+	func _init() -> void:
+		id = &"site_is_not_deadly"
+
+	func allows(site: DotSpawnSite, _context: Dictionary) -> bool:
+		if not danger_fn.is_valid():
+			return true
+
+		return not bool(danger_fn.call(site.position_2d()))
+
+	func reason() -> String:
+		return "something big enough to eat you is standing on it"
 
 
 func _other_positions(_team: StringName) -> Array:

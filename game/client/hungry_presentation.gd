@@ -43,6 +43,9 @@ var fx: DotFxManager = null
 var console: DotConsoleController = null
 var console_panel: DotConsolePanel = null
 
+## The in-game chat box. See [method _build_chat].
+var chat_window: DotChatWindow = null
+
 ## The game's own configuration, which stays the declaration.
 var config: HungryConfig = null
 
@@ -52,6 +55,10 @@ var sound: HungrySound = null
 var client: Node = null
 
 var _layer: CanvasLayer = null
+var _chat_layer: CanvasLayer = null
+
+## Whether the server said something else is carrying chat. See [method set_chat_relayed].
+var _chat_relayed: bool = false
 
 
 func setup() -> DotResult:
@@ -70,6 +77,8 @@ func setup() -> DotResult:
 	var consoled := _build_console()
 	if not consoled.ok:
 		return consoled
+
+	_build_chat()
 
 	# [b]And then every value is pushed once, which is the half that was missing.[/b]
 	# Everything below reacts to `changed`, and a value loaded from disk has not changed --
@@ -111,8 +120,36 @@ func _build_settings() -> DotResult:
 	# A settings document that does not reach it is a document nothing consumes, which is
 	# this family's single most repeated bug.
 	settings.schema.apply_to_config(config, settings.to_config().values())
+	_add_chat_settings()
 	settings.changed.connect(_on_setting_changed)
 	return DotResult.success(null)
+
+
+## The three chat settings, added BESIDE the config rather than read out of it.
+##
+## [b]Everything else here comes from [HungryConfig] on purpose[/b] — tightening a range
+## there tightens the slider, the console and the stored document at once — and these three
+## deliberately do not. A `DotConfig` is layered from a JSON file, the environment and the
+## command line, and a keyboard binding has no business arriving from a server's argv:
+## `HUNGRY_CHAT_OPEN_KEY=Q` in a container would rebind every player's chat key. What key
+## a person opens chat with is theirs, stored under `ACCOUNT` scope, and reaches nothing
+## that runs on a server.
+func _add_chat_settings() -> void:
+	settings.schema.add(DotSettingsDef.choice(
+		&"chat_window",
+		&"auto",
+		[&"auto", &"on", &"off"] as Array[StringName],
+		&"chat"
+	).with_scope(DotSettingsDef.Scope.ACCOUNT).with_description(
+		"auto hides the box on a server already carrying chat somewhere the player can "
+		+ "see it; on always draws it; off never does."
+	))
+	settings.schema.add(DotSettingsDef.binding(&"chat_open_key", "Y", &"chat").with_scope(
+		DotSettingsDef.Scope.ACCOUNT
+	))
+	settings.schema.add(DotSettingsDef.binding(&"chat_near_key", "U", &"chat").with_scope(
+		DotSettingsDef.Scope.ACCOUNT
+	).with_description("Opens chat on the proximity channel rather than on all."))
 
 
 func _on_setting_changed(key: StringName, value: Variant, _why: StringName) -> void:
@@ -127,6 +164,12 @@ func _on_setting_changed(key: StringName, value: Variant, _why: StringName) -> v
 			config.set(key, value)
 
 	match key:
+		&"chat_window":
+			_apply_chat_visibility()
+		&"chat_open_key":
+			_bind_chat(chat_window.open_action if chat_window != null else &"", str(value))
+		&"chat_near_key":
+			_bind_chat(chat_window.team_action if chat_window != null else &"", str(value))
 		&"volume_db":
 			if sound != null:
 				sound.volume_db = float(value)
@@ -302,6 +345,92 @@ func _build_fx() -> DotResult:
 
 # --- Console ----------------------------------------------------------------
 
+# --- Chat -------------------------------------------------------------------
+
+## The box a player types in, and the three settings that decide it.
+##
+## [b]This replaces a chat box that already existed, and the replacement is the point.[/b]
+## `HungryMenus.ChatScreen` was a modal [DotScreen] on Enter with one line edit in it: it
+## worked, and it was the only one of its kind in the family, with no log, no channels and
+## no way to tell whether anything else was carrying the conversation. Five games with five
+## chat boxes is this tree's most expensive shape. The behaviour a player loses is the
+## Enter key, and it is a setting away.
+##
+## Bottom left, at the default inset: this game's HUD keeps its score and its feed along
+## the top and the right, so the corner is free.
+func _build_chat() -> void:
+	_chat_layer = CanvasLayer.new()
+	_chat_layer.name = "ChatLayer"
+	_chat_layer.layer = 100
+	add_child(_chat_layer)
+
+	var offered: Array[Dictionary] = []
+
+	# The channels the server actually routes, rather than a second list here.
+	for channel in HungryServices.chat_channels():
+		if channel.admin_only or channel.server_only:
+			continue
+
+		offered.append({
+			"id": channel.id,
+			"label": "Say" if channel.display_name == "" else "Say (%s)" % channel.display_name,
+			"colour": channel.colour,
+			# No teams in this game; what the second key opens is the proximity channel.
+			"team": channel.scope == DotChatChannel.Scope.RADIUS,
+		})
+
+	chat_window = DotChatWindow.new()
+	chat_window.name = "ChatWindow"
+	chat_window.open_action = &"hungry_chat"
+	chat_window.team_action = &"hungry_chat_near"
+	chat_window.channels = offered
+	_chat_layer.add_child(chat_window)
+
+
+## Puts one binding from the settings document onto its action.
+##
+## Empty is left alone rather than applied: a settings file somebody cleared the field in
+## would otherwise unbind chat with no way to get it back from inside the game.
+func _bind_chat(action: StringName, text: String) -> void:
+	if action == &"" or text.strip_edges() == "":
+		return
+
+	var bound := DotInputBinding.apply(action, text)
+
+	if bound == "":
+		DotLog.warn(CHANNEL, "a chat key was not understood", {
+			"action": String(action), "binding": text
+		})
+
+
+## The server said whether anything else is carrying this conversation.
+func set_chat_relayed(relayed: bool) -> void:
+	if _chat_relayed == relayed:
+		return
+
+	_chat_relayed = relayed
+	_apply_chat_visibility()
+
+
+## Resolves the three-way setting against what the server said.
+##
+## `on` is both halves at once — a relayed server AND a box in front of the game. `off` is
+## a player who chats somewhere else. `auto` draws it unless this server is already putting
+## these lines somewhere this player can see them. In every case the log keeps drawing what
+## other people said.
+func _apply_chat_visibility() -> void:
+	if chat_window == null or settings == null:
+		return
+
+	match StringName(str(settings.get_value(&"chat_window"))):
+		&"on":
+			chat_window.enabled = true
+		&"off":
+			chat_window.enabled = false
+		_:
+			chat_window.enabled = not _chat_relayed
+
+
 func _build_console() -> DotResult:
 	console = DotConsoleController.new()
 	console.name = "Console"
@@ -363,8 +492,17 @@ func present(delta: float, listener: Vector2) -> void:
 	fx.advance(delta)
 
 
+## Whether something on screen owns the keyboard right now.
+##
+## [b]The chat box belongs here for the reason the console does.[/b] This game is steered
+## with the mouse, so a typed key does not walk anybody into a wall — but split, throw,
+## boost and eject are all keys, and a player typing "gg boost" who splits twice and
+## ejects their mass has lost the round to a chat box.
 func swallows_input() -> bool:
-	return console_panel != null and console_panel.has_keyboard_focus()
+	if console_panel != null and console_panel.has_keyboard_focus():
+		return true
+
+	return chat_window != null and chat_window.is_open()
 
 
 func camera_shake() -> Vector2:

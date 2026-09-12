@@ -547,6 +547,23 @@ func spawn(id: int, at: Vector2 = Vector2.INF) -> void:
 ## moved, and on a busy server it happens often enough to be the first thing anyone
 ## complains about.
 func _safe_spawn(id: int) -> Vector2:
+	# [b]The director first, and it is the same rule rather than a different one.[/b]
+	# `HungryPlayerStack` lays a grid of sites over the field, scores them by distance
+	# from every other monster and vetoes any with something big enough to eat you on it
+	# — which is what the loop below does by hand, plus a protection window that
+	# `DotSpawnProtection` only ever grants from inside `choose`. Until this call the
+	# grid was built, the scoring was configured and nothing ever asked.
+	#
+	# The loop stays as the fallback. It is deterministic in the id where the director is
+	# deterministic in its own stream, and on a field with no safe cell at all the
+	# director correctly refuses while a player still has to go somewhere.
+	if player_stack != null:
+		var chosen := player_stack.choose_spawn(id)
+
+		if chosen.ok:
+			var at3 := (chosen.value as DotSpawnChoice).transform.origin
+			return Vector2(at3.x, at3.y)
+
 	var start_radius := tunables.mass_rules.radius_for(HungryContent.START_MASS)
 
 	for attempt in range(14):

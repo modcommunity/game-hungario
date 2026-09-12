@@ -445,60 +445,6 @@ class LoadoutScreen extends DotScreen:
 		close()
 
 
-## One line of chat, on its way to the server.
-##
-## [b]It blocks input while it is open and that is the whole reason it is a screen.[/b] A
-## chat box that let the movement keys through is a player who drives into a wall while
-## typing "hello", and getting that consistently right across a HUD, a pause menu and a
-## scoreboard is what [DotScreenStack] is for.
-class ChatScreen extends DotScreen:
-	signal submitted(text: String)
-
-	var line: LineEdit = null
-
-	func _screen_id() -> StringName:
-		return &"chat"
-
-	func build() -> void:
-		blocks_input = true
-		hides_below = false
-		mouse_mode = DotScreen.Mouse.VISIBLE
-
-		var panel := PanelContainer.new()
-		panel.name = "Panel"
-		panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-		panel.offset_left = 20.0
-		panel.offset_right = -20.0
-		panel.offset_top = -110.0
-		panel.offset_bottom = -70.0
-		add_child(panel)
-
-		line = LineEdit.new()
-		line.name = "Line"
-		line.placeholder_text = "Say something…"
-		# The server truncates anyway, but a client that let somebody type four thousand
-		# characters and then silently sent forty is a client that looks broken.
-		line.max_length = 180
-		line.text_submitted.connect(_on_submitted)
-		panel.add_child(line)
-
-		initial_focus = NodePath("Panel/Line")
-
-	func _on_submitted(text: String) -> void:
-		var trimmed := text.strip_edges()
-		line.text = ""
-
-		if trimmed != "":
-			submitted.emit(trimmed)
-
-		close()
-
-	func _on_push() -> void:
-		if line != null:
-			line.text = ""
-			line.grab_focus()
-
-
 ## Registers every screen with a stack and wires the buttons that navigate.
 ##
 ## Returns the pause screen, because that is the one a game opens.
@@ -538,11 +484,6 @@ static func install(
 	scoreboard.name = "Scoreboard"
 	scoreboard.build(world, bridge)
 	stack.register(scoreboard)
-
-	var chat := ChatScreen.new()
-	chat.name = "Chat"
-	chat.build()
-	stack.register(chat)
 
 	pause.resume_pressed.connect(func() -> void: stack.pop(&"pause"))
 	pause.loadout_pressed.connect(func() -> void: stack.push(&"loadout"))
