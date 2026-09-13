@@ -1,5 +1,24 @@
 extends Node
 
+const HungryBot := preload("../game/hungry_bot.gd")
+const HungryConfig := preload("../game/hungry_config.gd")
+const HungryContent := preload("../game/hungry_content.gd")
+const HungryContentSource := preload("../game/client/hungry_content_source.gd")
+const HungryEvents := preload("../game/net/hungry_events.gd")
+const HungryField := preload("../game/hungry_field.gd")
+const HungryHud := preload("../game/client/hungry_hud.gd")
+const HungryInput := preload("../game/client/hungry_input.gd")
+const HungryMenus := preload("../game/client/hungry_menus.gd")
+const HungryMonster := preload("../game/hungry_monster.gd")
+const HungryNetCommand := preload("../game/net/hungry_net_command.gd")
+const HungryPreset := preload("../game/hungry_preset.gd")
+const HungryProjectile := preload("../game/hungry_projectile.gd")
+const HungryRenderer := preload("../game/client/hungry_renderer.gd")
+const HungryRider := preload("../game/client/hungry_rider.gd")
+const HungrySound := preload("../game/client/hungry_sound.gd")
+const HungryTouch := preload("../game/client/hungry_touch.gd")
+const HungryWorld := preload("../game/hungry_world.gd")
+
 ## Plays whole rounds of the game with nobody watching, and checks that they work.
 ##
 ## [codeblock]

@@ -1,5 +1,7 @@
-class_name HungryMatchNet
 extends DotNetBehaviour
+
+const HungryNetBridge := preload("hungry_net_bridge.gd")
+const HungryWorld := preload("../hungry_world.gd")
 
 ## The match clock, replicated. Four numbers on one always-relevant entity.
 ##

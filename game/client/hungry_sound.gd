@@ -1,6 +1,7 @@
 @tool
-class_name HungrySound
 extends Node
+
+const HungrySound := preload("hungry_sound.gd")
 
 ## Every noise this game makes, generated at startup. It ships no audio files.
 ##

@@ -1,6 +1,7 @@
 @tool
-class_name HungryRules
 extends DotMatchRules
+
+const HungryContent := preload("hungry_content.gd")
 
 ## A round ends when someone gets big enough, or when the clock runs out.
 ##

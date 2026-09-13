@@ -1,5 +1,18 @@
-class_name HungryNetBridge
 extends Node
+
+const HungryContent := preload("../hungry_content.gd")
+const HungryEvent := preload("hungry_event.gd")
+const HungryEvents := preload("hungry_events.gd")
+const HungryInterest := preload("hungry_interest.gd")
+const HungryMatchNet := preload("hungry_match_net.gd")
+const HungryMonster := preload("../hungry_monster.gd")
+const HungryNetCommand := preload("hungry_net_command.gd")
+const HungryNetLink := preload("hungry_net_link.gd")
+const HungryPiece := preload("../hungry_piece.gd")
+const HungryPieceNet := preload("hungry_piece_net.gd")
+const HungryProjectile := preload("../hungry_projectile.gd")
+const HungryRequest := preload("hungry_request.gd")
+const HungryWorld := preload("../hungry_world.gd")
 
 ## Joins a [HungryWorld] to a [DotNetManager]. The netcode seam, and the only file in
 ## this project that names both.

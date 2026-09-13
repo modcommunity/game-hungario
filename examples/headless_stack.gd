@@ -1,5 +1,10 @@
 extends Node
 
+const HungryContent := preload("../game/hungry_content.gd")
+const HungryPlayerStack := preload("../game/hungry_player_stack.gd")
+const HungryPreset := preload("../game/hungry_preset.gd")
+const HungryWorld := preload("../game/hungry_world.gd")
+
 ## The player stack, run against a real 2D arena rather than against a stub.
 ##
 ## [codeblock]

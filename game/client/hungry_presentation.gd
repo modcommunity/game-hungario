@@ -1,5 +1,9 @@
-class_name HungryPresentation
 extends Node
+
+const HungryConfig := preload("../hungry_config.gd")
+const HungryServices := preload("../hungry_services.gd")
+const HungrySound := preload("hungry_sound.gd")
+const HungrySoundSink := preload("hungry_sound_sink.gd")
 
 ## Settings, audio, effects and a console — every one of them wired to something this game
 ## already had, rather than beside it.

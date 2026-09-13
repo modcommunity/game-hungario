@@ -1,5 +1,8 @@
-class_name HungryMenus
 extends RefCounted
+
+const HungryContent := preload("../hungry_content.gd")
+const HungryNetBridge := preload("../net/hungry_net_bridge.gd")
+const HungryWorld := preload("../hungry_world.gd")
 
 ## The in-game screens: pause, settings, controls, scoreboard and chat.
 ##

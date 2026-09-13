@@ -1,5 +1,7 @@
-class_name HungryServices
 extends Node
+
+const HungryNetBridge := preload("net/hungry_net_bridge.gd")
+const HungryWorld := preload("hungry_world.gd")
 
 ## Chat, moderation and voice, wired to this arena's people and this game's wire.
 ##

@@ -1,5 +1,6 @@
-class_name HungryMaps
 extends Node
+
+const HungryModule := preload("hungry_module.gd")
 
 ## What plays next, and who decides.
 ##

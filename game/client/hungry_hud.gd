@@ -1,6 +1,13 @@
 @tool
-class_name HungryHud
 extends DotHud
+
+const HungryContent := preload("../hungry_content.gd")
+const HungryEvents := preload("../net/hungry_events.gd")
+const HungryField := preload("../hungry_field.gd")
+const HungryMonster := preload("../hungry_monster.gd")
+const HungryNetBridge := preload("../net/hungry_net_bridge.gd")
+const HungryTouch := preload("hungry_touch.gd")
+const HungryWorld := preload("../hungry_world.gd")
 
 ## Mass, the leaderboard, the clock, what you are carrying, the feed and a minimap.
 ##

@@ -1,5 +1,7 @@
-class_name HungryProjectile
 extends RefCounted
+
+const HungryContent := preload("hungry_content.gd")
+const HungryProjectile := preload("hungry_projectile.gd")
 
 ## A thrown item in flight.
 ##

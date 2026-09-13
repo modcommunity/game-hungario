@@ -1,6 +1,8 @@
 @tool
-class_name HungryCamera
 extends Dot2DCameraRig
+
+const HungryCamera := preload("hungry_camera.gd")
+const HungryMonster := preload("../hungry_monster.gd")
 
 ## Frames a monster: the whole set of it, not one piece.
 ##

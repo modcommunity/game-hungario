@@ -1,6 +1,8 @@
 @tool
-class_name HungryTouch
 extends Control
+
+const HungryContent := preload("../hungry_content.gd")
+const HungryTouch := preload("hungry_touch.gd")
 
 ## The two buttons a phone needs, and nothing else.
 ##

@@ -1,5 +1,6 @@
-class_name HungryBrowser
 extends Control
+
+const HungryModule := preload("../hungry_module.gd")
 
 ## The server list: what a person sees before they are in a game.
 ##

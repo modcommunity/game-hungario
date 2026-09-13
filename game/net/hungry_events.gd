@@ -1,5 +1,8 @@
-class_name HungryEvents
 extends RefCounted
+
+const HungryContent := preload("../hungry_content.gd")
+const HungryField := preload("../hungry_field.gd")
+const HungryProjectile := preload("../hungry_projectile.gd")
 
 ## The wire format for everything that is not a snapshot or an input.
 ##

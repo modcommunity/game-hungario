@@ -1,5 +1,8 @@
-class_name HungryHazards
 extends Node
+
+const HungryMonster := preload("hungry_monster.gd")
+const HungryPiece := preload("hungry_piece.gd")
+const HungryWorld := preload("hungry_world.gd")
 
 ## Things standing in the arena that nobody placed by hand: rocks, spikes and lures.
 ##

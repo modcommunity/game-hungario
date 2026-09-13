@@ -1,5 +1,6 @@
-class_name HungryPiece
 extends RefCounted
+
+const HungryPiece := preload("hungry_piece.gd")
 
 ## One piece of one monster.
 ##

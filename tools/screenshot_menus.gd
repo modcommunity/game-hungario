@@ -1,5 +1,9 @@
 extends SceneTree
 
+const HungryContent := preload("../game/hungry_content.gd")
+const HungryMenus := preload("../game/client/hungry_menus.gd")
+const HungryWorld := preload("../game/hungry_world.gd")
+
 ## Renders this game's own screens to `screenshots/` so a person can look at them.
 ##
 ## [b]This game had no screenshot tool at all[/b], and it is the one with the most screens:

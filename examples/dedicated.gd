@@ -1,5 +1,14 @@
 extends Node
 
+const HungryContent := preload("../game/hungry_content.gd")
+const HungryHunters := preload("../game/hungry_hunters.gd")
+const HungryInterest := preload("../game/net/hungry_interest.gd")
+const HungryModule := preload("../game/hungry_module.gd")
+const HungryMonster := preload("../game/hungry_monster.gd")
+const HungryNetLink := preload("../game/net/hungry_net_link.gd")
+const HungryServices := preload("../game/hungry_services.gd")
+const HungryWorld := preload("../game/hungry_world.gd")
+
 ## A real [DotServer] with the game loaded into it, listening for browser clients.
 ##
 ## [codeblock]

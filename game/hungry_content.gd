@@ -1,5 +1,6 @@
-class_name HungryContent
 extends RefCounted
+
+const HungryRules := preload("hungry_rules.gd")
 
 ## Every number the game is balanced on, in one file.
 ##

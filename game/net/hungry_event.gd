@@ -1,5 +1,7 @@
-class_name HungryEvent
 extends DotNetMessage
+
+const HungryEvent := preload("hungry_event.gd")
+const HungryEvents := preload("hungry_events.gd")
 
 ## Everything the authority tells a client that is not a snapshot.
 ##

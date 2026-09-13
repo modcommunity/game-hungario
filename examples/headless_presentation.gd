@@ -1,5 +1,12 @@
 extends Node
 
+const HungryConfig := preload("../game/hungry_config.gd")
+const HungryParty := preload("../game/hungry_party.gd")
+const HungryPresentation := preload("../game/client/hungry_presentation.gd")
+const HungryServices := preload("../game/hungry_services.gd")
+const HungrySound := preload("../game/client/hungry_sound.gd")
+const HungrySoundSink := preload("../game/client/hungry_sound_sink.gd")
+
 ## Settings, audio, effects, the console and the private arena.
 ##
 ## [codeblock]

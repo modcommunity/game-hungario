@@ -1,5 +1,7 @@
-class_name HungryNetLink
 extends Node
+
+const HungryNetBridge := preload("hungry_net_bridge.gd")
+const HungryNetLink := preload("hungry_net_link.gd")
 
 ## The four remote calls this game needs, on one node that exists on both ends.
 ##

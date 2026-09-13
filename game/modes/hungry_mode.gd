@@ -1,6 +1,9 @@
 @tool
-class_name HungryMode
 extends Node
+
+const HungryContent := preload("../hungry_content.gd")
+const HungryPreset := preload("../hungry_preset.gd")
+const HungryWorld := preload("../hungry_world.gd")
 
 ## One mode of the game, as a scene a [DotGameManager] can load and unload.
 ##

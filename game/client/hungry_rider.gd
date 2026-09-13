@@ -1,6 +1,7 @@
 @tool
-class_name HungryRider
 extends Node2D
+
+const HungryRider := preload("hungry_rider.gd")
 
 ## The avatar sitting on top of a monster.
 ##

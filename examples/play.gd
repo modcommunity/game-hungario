@@ -1,5 +1,8 @@
 extends Node
 
+const HungryBrowser := preload("../game/client/hungry_browser.gd")
+const HungryClient := preload("../game/client/hungry_client.gd")
+
 ## The launcher: a name, an address, and a button.
 ##
 ## [codeblock]

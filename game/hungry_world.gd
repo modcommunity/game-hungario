@@ -1,6 +1,15 @@
 @tool
-class_name HungryWorld
 extends Node
+
+const HungryContent := preload("hungry_content.gd")
+const HungryField := preload("hungry_field.gd")
+const HungryMonster := preload("hungry_monster.gd")
+const HungryNetCommand := preload("net/hungry_net_command.gd")
+const HungryPiece := preload("hungry_piece.gd")
+const HungryPlayerStack := preload("hungry_player_stack.gd")
+const HungryPreset := preload("hungry_preset.gd")
+const HungryProjectile := preload("hungry_projectile.gd")
+const HungrySpectate := preload("hungry_spectate.gd")
 
 ## The game: an arena, four fields of food, a set of monsters, and the rules that
 ## connect them.

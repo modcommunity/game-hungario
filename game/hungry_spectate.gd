@@ -1,5 +1,6 @@
-class_name HungrySpectate
 extends Node
+
+const HungryWorld := preload("hungry_world.gd")
 
 ## Where a dead monster's owner looks.
 ##

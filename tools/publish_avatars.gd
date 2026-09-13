@@ -1,5 +1,7 @@
 extends Node
 
+const HungryContentSource := preload("../game/client/hungry_content_source.gd")
+
 ## Packages this game's avatar parts into a signed dot-cloud pack.
 ##
 ## [codeblock]

@@ -1,5 +1,11 @@
 extends Node
 
+const HungryClient := preload("../game/client/hungry_client.gd")
+const HungryContent := preload("../game/hungry_content.gd")
+const HungryModule := preload("../game/hungry_module.gd")
+const HungryNetLink := preload("../game/net/hungry_net_link.gd")
+const HungryServices := preload("../game/hungry_services.gd")
+
 ## A real server and a real client, one process, over a real socket, playing the game.
 ##
 ## [codeblock]

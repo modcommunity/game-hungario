@@ -1,5 +1,16 @@
-class_name HungryModule
 extends DotModule
+
+const HungryBot := preload("hungry_bot.gd")
+const HungryCombat := preload("hungry_combat.gd")
+const HungryContent := preload("hungry_content.gd")
+const HungryHazards := preload("hungry_hazards.gd")
+const HungryHunters := preload("hungry_hunters.gd")
+const HungryMaps := preload("hungry_maps.gd")
+const HungryMonster := preload("hungry_monster.gd")
+const HungryNetBridge := preload("net/hungry_net_bridge.gd")
+const HungryProgress := preload("hungry_progress.gd")
+const HungryServices := preload("hungry_services.gd")
+const HungryWorld := preload("hungry_world.gd")
 
 ## Binds a [HungryWorld] and its netcode to a [DotServer].
 ##

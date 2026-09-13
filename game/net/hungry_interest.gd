@@ -1,5 +1,7 @@
-class_name HungryInterest
 extends DotNetInterest
+
+const HungryNetBridge := preload("hungry_net_bridge.gd")
+const HungryPieceNet := preload("hungry_piece_net.gd")
 
 ## Who is told about which pieces.
 ##

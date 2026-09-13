@@ -1,5 +1,9 @@
-class_name HungryPlayerStack
 extends Node
+
+const HungryContent := preload("hungry_content.gd")
+const HungryField := preload("hungry_field.gd")
+const HungryPiece := preload("hungry_piece.gd")
+const HungryWorld := preload("hungry_world.gd")
 
 ## The player-facing addons, stood up once and bound to the 2D arena.
 ##

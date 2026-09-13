@@ -1,5 +1,6 @@
-class_name HungryContentSource
 extends RefCounted
+
+const HungryContent := preload("../hungry_content.gd")
 
 ## Where an avatar part's scene comes from: the cloud if there is one, the build if not.
 ##

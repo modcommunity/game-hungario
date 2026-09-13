@@ -1,5 +1,20 @@
 extends Node
 
+const HungryContent := preload("../game/hungry_content.gd")
+const HungryEvent := preload("../game/net/hungry_event.gd")
+const HungryEvents := preload("../game/net/hungry_events.gd")
+const HungryField := preload("../game/hungry_field.gd")
+const HungryHazards := preload("../game/hungry_hazards.gd")
+const HungryHunters := preload("../game/hungry_hunters.gd")
+const HungryInterest := preload("../game/net/hungry_interest.gd")
+const HungryNetBridge := preload("../game/net/hungry_net_bridge.gd")
+const HungryNetCommand := preload("../game/net/hungry_net_command.gd")
+const HungryPieceNet := preload("../game/net/hungry_piece_net.gd")
+const HungryPreset := preload("../game/hungry_preset.gd")
+const HungryProjectile := preload("../game/hungry_projectile.gd")
+const HungryServices := preload("../game/hungry_services.gd")
+const HungryWorld := preload("../game/hungry_world.gd")
+
 ## Runs a server and a client in one process and checks the netcode works.
 ##
 ## [codeblock]

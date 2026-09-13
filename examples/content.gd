@@ -1,5 +1,9 @@
 extends Node
 
+const HungryContent := preload("../game/hungry_content.gd")
+const HungryContentSource := preload("../game/client/hungry_content_source.gd")
+const HungryRider := preload("../game/client/hungry_rider.gd")
+
 ## Publishes this game's avatar parts, downloads them back, mounts them, and dresses a
 ## rider out of them.
 ##

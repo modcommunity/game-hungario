@@ -1,5 +1,8 @@
-class_name HungryPieceNet
 extends DotNetBehaviour
+
+const HungryNetBridge := preload("hungry_net_bridge.gd")
+const HungryNetCommand := preload("hungry_net_command.gd")
+const HungryPiece := preload("../hungry_piece.gd")
 
 ## The thirty lines [Dot2DNetSync] says belong in the game.
 ##

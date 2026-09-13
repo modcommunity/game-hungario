@@ -1,5 +1,7 @@
-class_name HungryHunters
 extends Node
+
+const HungryMonster := preload("hungry_monster.gd")
+const HungryWorld := preload("hungry_world.gd")
 
 ## NPC monsters that roam the arena, eat what they can and run from what they cannot.
 ##

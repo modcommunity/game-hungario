@@ -1,6 +1,15 @@
 @tool
-class_name HungryRenderer
 extends Node2D
+
+const HungryContent := preload("../hungry_content.gd")
+const HungryContentSource := preload("hungry_content_source.gd")
+const HungryField := preload("../hungry_field.gd")
+const HungryHazards := preload("../hungry_hazards.gd")
+const HungryHunters := preload("../hungry_hunters.gd")
+const HungryMonster := preload("../hungry_monster.gd")
+const HungryPiece := preload("../hungry_piece.gd")
+const HungryRider := preload("hungry_rider.gd")
+const HungryWorld := preload("../hungry_world.gd")
 
 ## Draws the world. The only file in this project that knows what anything looks like.
 ##

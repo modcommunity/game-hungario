@@ -1,6 +1,8 @@
 @tool
-class_name HungryPreset
 extends Resource
+
+const HungryContent := preload("hungry_content.gd")
+const HungryPreset := preload("hungry_preset.gd")
 
 ## The handful of numbers that make one mode of this game different from another.
 ##

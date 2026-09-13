@@ -1,5 +1,8 @@
-class_name HungryMonster
 extends RefCounted
+
+const HungryContent := preload("hungry_content.gd")
+const HungryMonster := preload("hungry_monster.gd")
+const HungryPiece := preload("hungry_piece.gd")
 
 ## One player: the pieces they control, what they are carrying, and what is currently
 ## happening to them.

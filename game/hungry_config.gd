@@ -1,6 +1,7 @@
 @tool
-class_name HungryConfig
 extends DotConfig
+
+const HungryConfig := preload("hungry_config.gd")
 
 ## What a player can change, and where it is kept.
 ##

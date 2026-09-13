@@ -1,4 +1,3 @@
-class_name HungryParty
 extends Node
 
 ## A private arena among friends, with the host able to leave.

@@ -1,5 +1,26 @@
-class_name HungryClient
 extends Node2D
+
+const HungryBot := preload("../hungry_bot.gd")
+const HungryCamera := preload("hungry_camera.gd")
+const HungryConfig := preload("../hungry_config.gd")
+const HungryContent := preload("../hungry_content.gd")
+const HungryContentSource := preload("hungry_content_source.gd")
+const HungryEvents := preload("../net/hungry_events.gd")
+const HungryHazards := preload("../hungry_hazards.gd")
+const HungryHud := preload("hungry_hud.gd")
+const HungryHunters := preload("../hungry_hunters.gd")
+const HungryInput := preload("hungry_input.gd")
+const HungryMenus := preload("hungry_menus.gd")
+const HungryMonster := preload("../hungry_monster.gd")
+const HungryNetBridge := preload("../net/hungry_net_bridge.gd")
+const HungryPresentation := preload("hungry_presentation.gd")
+const HungryPreset := preload("../hungry_preset.gd")
+const HungryProjectile := preload("../hungry_projectile.gd")
+const HungryRenderer := preload("hungry_renderer.gd")
+const HungryServices := preload("../hungry_services.gd")
+const HungrySound := preload("hungry_sound.gd")
+const HungryVoice := preload("hungry_voice.gd")
+const HungryWorld := preload("../hungry_world.gd")
 
 ## The playable client: a world, a camera, a renderer, a HUD and a socket.
 ##

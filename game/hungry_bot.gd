@@ -1,5 +1,10 @@
-class_name HungryBot
 extends RefCounted
+
+const HungryField := preload("hungry_field.gd")
+const HungryMonster := preload("hungry_monster.gd")
+const HungryNetCommand := preload("net/hungry_net_command.gd")
+const HungryPiece := preload("hungry_piece.gd")
+const HungryWorld := preload("hungry_world.gd")
 
 ## A monster that plays itself.
 ##

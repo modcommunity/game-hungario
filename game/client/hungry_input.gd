@@ -1,6 +1,10 @@
 @tool
-class_name HungryInput
 extends Dot2DSampler
+
+const HungryInput := preload("hungry_input.gd")
+const HungryMonster := preload("../hungry_monster.gd")
+const HungryNetCommand := preload("../net/hungry_net_command.gd")
+const HungryTouch := preload("hungry_touch.gd")
 
 ## Turns a mouse, a keyboard, a gamepad or a finger into a [Dot2DCommand].
 ##

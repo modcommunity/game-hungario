@@ -1,5 +1,6 @@
-class_name HungryCombat
 extends Node
+
+const HungryContent := preload("hungry_content.gd")
 
 ## What a thrown item does to somebody, through dot-combat's rules rather than a constant.
 ##

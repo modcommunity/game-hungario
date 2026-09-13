@@ -1,5 +1,7 @@
-class_name HungryRequest
 extends DotNetMessage
+
+const HungryEvents := preload("hungry_events.gd")
+const HungryRequest := preload("hungry_request.gd")
 
 ## Everything a client asks the authority for that is not an input.
 ##

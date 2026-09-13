@@ -1,5 +1,6 @@
-class_name HungrySoundSink
 extends DotAudioSink
+
+const HungrySound := preload("hungry_sound.gd")
 
 ## dot-audio's sink, backed by the sound this game already generates for itself.
 ##

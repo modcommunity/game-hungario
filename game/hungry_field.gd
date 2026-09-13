@@ -1,5 +1,7 @@
-class_name HungryField
 extends RefCounted
+
+const HungryContent := preload("hungry_content.gd")
+const HungryField := preload("hungry_field.gd")
 
 ## Everything edible in the world, and the one id space it shares with the monsters.
 ##

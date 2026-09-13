@@ -1,5 +1,6 @@
-class_name HungryVoice
 extends Node
+
+const HungryServices := preload("../hungry_services.gd")
 
 ## The client half of voice: a microphone, a codec, a jitter buffer per speaker, and a key.
 ##

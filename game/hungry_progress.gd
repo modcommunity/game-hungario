@@ -1,5 +1,6 @@
-class_name HungryProgress
 extends Node
+
+const HungryMonster := preload("hungry_monster.gd")
 
 ## Boards and achievements over the numbers this game already counts.
 ##

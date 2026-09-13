@@ -1,5 +1,6 @@
-class_name HungryNetCommand
 extends DotNetInput
+
+const HungryNetCommand := preload("hungry_net_command.gd")
 
 ## One tick of a player's intent, on the wire.
 ##
