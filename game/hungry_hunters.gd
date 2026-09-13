@@ -1,5 +1,7 @@
 extends Node
 
+const HungryPaths := preload("hungry_paths.gd")
+
 const HungryMonster := preload("hungry_monster.gd")
 const HungryWorld := preload("hungry_world.gd")
 
@@ -48,10 +50,10 @@ const CHANNEL := "hungry.hunters"
 ## `content/` therefore mounts in a developer checkout and is missing in the deployment,
 ## where the only symptom is dot-npc refusing every spawn with "that NPC's content is not
 ## loaded on this server", which is a correct answer to a question nobody meant to ask.
-const HUNTER_SCENE := "res://game/hungry_hunter_body.tscn"
+static var HUNTER_SCENE := HungryPaths.rebase("res://game/hungry_hunter_body.tscn")
 
 ## The brain, named by PATH. See the note at the top of `hunter_brain.gd`.
-const HUNTER_BRAIN := "res://game/hungry_hunter_brain.gd"
+static var HUNTER_BRAIN := HungryPaths.rebase("res://game/hungry_hunter_brain.gd")
 
 ## Candidate id prefix for a player, so a hunter's target id can be turned back into one.
 ##

@@ -1,5 +1,7 @@
 extends RefCounted
 
+const HungryPaths := preload("../hungry_paths.gd")
+
 const HungryContent := preload("../hungry_content.gd")
 
 ## Where an avatar part's scene comes from: the cloud if there is one, the build if not.
@@ -36,7 +38,7 @@ const CLOUD_SERVICE := &"dot_cloud_client"
 const PACK_ID := "hungry_avatars"
 
 ## Where the build's own copies are.
-const BUILTIN_PREFIX := "res://content/avatars/"
+static var BUILTIN_PREFIX := HungryPaths.rebase("res://content/avatars/")
 
 const SUFFIX := ".tscn"
 
@@ -150,7 +152,7 @@ func is_mounted(part: DotAvatarPart) -> bool:
 # --- Publishing ------------------------------------------------------------
 
 ## Where this game's cosmetics live in the build, and what a pack is built from.
-const SOURCE_DIR := "res://content/avatars"
+static var SOURCE_DIR := HungryPaths.rebase("res://content/avatars")
 
 ## Packages the avatar parts into a signed, content-addressed pack.
 ##

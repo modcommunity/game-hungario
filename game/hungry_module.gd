@@ -1,5 +1,7 @@
 extends DotModule
 
+const HungryPaths := preload("hungry_paths.gd")
+
 const HungryBot := preload("hungry_bot.gd")
 const HungryCombat := preload("hungry_combat.gd")
 const HungryContent := preload("hungry_content.gd")
@@ -1240,9 +1242,9 @@ static func game_descriptors() -> Array[DotGameDescriptor]:
 	var out: Array[DotGameDescriptor] = []
 
 	for row in [
-		[GAME_CLASSIC, "Hungario: Classic", "res://game/modes/classic.tscn"],
-		[GAME_FRENZY, "Hungario: Frenzy", "res://game/modes/frenzy.tscn"],
-		[GAME_GAUNTLET, "Hungario: Gauntlet", "res://game/modes/gauntlet.tscn"],
+		[GAME_CLASSIC, "Hungario: Classic", HungryPaths.rebase("res://game/modes/classic.tscn")],
+		[GAME_FRENZY, "Hungario: Frenzy", HungryPaths.rebase("res://game/modes/frenzy.tscn")],
+		[GAME_GAUNTLET, "Hungario: Gauntlet", HungryPaths.rebase("res://game/modes/gauntlet.tscn")],
 	]:
 		var descriptor := DotGameDescriptor.new()
 		descriptor.game_id = String(row[0])

@@ -1,5 +1,7 @@
 extends Node
 
+const HungryPaths := preload("hungry_paths.gd")
+
 const HungryMonster := preload("hungry_monster.gd")
 const HungryPiece := preload("hungry_piece.gd")
 const HungryWorld := preload("hungry_world.gd")
@@ -24,7 +26,7 @@ const HungryWorld := preload("hungry_world.gd")
 
 const CHANNEL := "hungry.hazards"
 
-const HAZARD_SCENE := "res://game/hungry_hazard_body.tscn"
+static var HAZARD_SCENE := HungryPaths.rebase("res://game/hungry_hazard_body.tscn")
 
 ## Nobody may hold more than this. An admin and the director are the only owners today.
 const PER_OWNER := 24
